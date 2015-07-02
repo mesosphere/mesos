@@ -407,6 +407,7 @@ libmesos_no_3rdparty_la_SOURCES =					\
 	slave/containerizer/launcher.cpp				\
 	slave/containerizer/mesos/containerizer.cpp			\
 	slave/containerizer/mesos/launch.cpp				\
+	slave/containerizer/simulator/containerizer.cpp			\
 	slave/resource_estimators/noop.cpp				\
 	usage/usage.cpp							\
 	watcher/whitelist_watcher.cpp					\
@@ -632,6 +633,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
 	slave/containerizer/linux_launcher.hpp				\
 	slave/containerizer/mesos/containerizer.hpp			\
 	slave/containerizer/mesos/launch.hpp				\
+	slave/containerizer/simulator/containerizer.hpp			\
 	slave/containerizer/isolators/posix.hpp				\
 	slave/containerizer/isolators/posix/disk.hpp			\
 	slave/containerizer/isolators/cgroups/constants.hpp		\
@@ -850,6 +852,11 @@ bin_PROGRAMS += mesos-local
 mesos_local_SOURCES = local/main.cpp
 mesos_local_CPPFLAGS = $(MESOS_CPPFLAGS)
 mesos_local_LDADD = libmesos.la $(LDADD)
+
+bin_PROGRAMS += mesos-simulator
+mesos_simulator_SOURCES = slave/containerizer/simulator/main.cpp
+mesos_simulator_CPPFLAGS = $(MESOS_CPPFLAGS)
+mesos_simulator_LDADD = libmesos.la $(LDADD)
 
 pkglibexec_PROGRAMS += mesos-fetcher
 mesos_fetcher_SOURCES = launcher/fetcher.cpp
