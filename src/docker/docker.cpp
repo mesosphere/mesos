@@ -681,6 +681,11 @@ Try<Docker::RunOptions> Docker::RunOptions::create(
   options.env["MESOS_SANDBOX"] = mappedDirectory;
   options.env["MESOS_CONTAINER_NAME"] = name;
 
+  Option<string> libprocessIP = os::getenv("LIBPROCESS_IP");
+  if (libprocessIP.isSome()) {
+    options.env["LIBPROCESS_IP"] = libprocessIP.get();
+  }
+
   if (resources.isSome()) {
     // Set the `MESOS_ALLOCATION_ROLE` environment variable. Please note
     // that tasks and executors are not allowed to mix resources allocated
