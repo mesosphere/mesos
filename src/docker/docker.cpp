@@ -638,6 +638,11 @@ Try<Docker::RunOptions> Docker::RunOptions::create(
   options.env["MESOS_SANDBOX"] = mappedDirectory;
   options.env["MESOS_CONTAINER_NAME"] = name;
 
+  Option<string> libprocessIP = os::getenv("LIBPROCESS_IP");
+  if (libprocessIP.isSome()) {
+    options.env["LIBPROCESS_IP"] = libprocessIP.get();
+  }
+
   Option<string> volumeDriver;
   foreach (const Volume& volume, containerInfo.volumes()) {
     // The 'container_path' can be either an absolute path or a
