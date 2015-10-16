@@ -555,6 +555,11 @@ Future<Option<int>> Docker::run(
   environmentVariables["MESOS_SANDBOX"] = mappedDirectory;
   environmentVariables["MESOS_CONTAINER_NAME"] = name;
 
+  Option<string> libprocessIP = os::getenv("LIBPROCESS_IP");
+  if (libprocessIP.isSome()) {
+    environmentVariables["LIBPROCESS_IP"] = libprocessIP.get();
+  }
+
   foreachpair(const string& key, const string& value, environmentVariables) {
     argv.push_back("-e");
     argv.push_back(key + "=" + value);
