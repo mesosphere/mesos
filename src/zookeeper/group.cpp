@@ -410,6 +410,8 @@ Try<bool> GroupProcess::authenticate()
       return Error(
           "Failed to authenticate with ZooKeeper: " + zk->message(code));
     }
+  } else {
+    LOG(INFO) << "DUPA Auth is not some!";
   }
 
   state = AUTHENTICATED;
@@ -838,8 +840,12 @@ Try<bool> GroupProcess::sync()
   CHECK(state == CONNECTED || state == AUTHENTICATED || state == READY)
     << state;
 
+  LOG(INFO) << "State: " << state;
+
   // Authenticate with ZK if not already authenticated.
+  LOG(INFO) << "DUPA PRECONN";
   if (state == CONNECTED) {
+  LOG(INFO) << "DUPA POSTCONN";
     Try<bool> authenticated = authenticate();
     if (authenticated.isError() || !authenticated.get()) {
       return authenticated;
@@ -847,7 +853,9 @@ Try<bool> GroupProcess::sync()
   }
 
   // Create group base path if not already created.
+  LOG(INFO) << "DUPA PREAUTH";
   if (state == AUTHENTICATED) {
+    LOG(INFO) << "DUPA POSTAUTH"
     Try<bool> created = create();
     if (created.isError() || !created.get()) {
       return created;
