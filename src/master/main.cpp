@@ -297,6 +297,7 @@ int main(int argc, char** argv)
       if (url.isError()) {
         EXIT(EXIT_FAILURE) << "Error parsing ZooKeeper URL: " << url.error();
       }
+      LOG(INFO) << "DUPA ZK auth: " << url.get().authentication;
 
       log = new Log(
           flags.quorum.get(),
