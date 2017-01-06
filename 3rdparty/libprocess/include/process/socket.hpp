@@ -411,12 +411,16 @@ public:
     return impl->shutdown(how);
   }
 
-  // Support implicit conversion of any `Socket<AddressType>` to a
-  // `Socket<network::Address>`.
+  // Support implicit "up" conversion of any `Socket<AddressType>` to
+  // a `Socket<network::Address>`.
   operator Socket<network::Address>() const
   {
     return Socket<network::Address>(impl);
   }
+
+  // Support implicit "down" conversion to a `Try` for safety.
+  template <typename T>
+  operator Try<Socket<T>>() const;
 
 private:
   // Necessary to support the implicit conversion operator from any
@@ -432,6 +436,10 @@ private:
 };
 
 } // namespace internal {
+
+
+// TODO(benh): Add std::hash overload for Socket and then remove the
+// automatic conversion to int that Socket has above.
 
 
 using Socket = network::internal::Socket<network::Address>;
@@ -464,6 +472,18 @@ inline Try<Socket<network::Address>> Socket<network::Address>::create(
     return Error(impl.error());
   }
   return Socket(impl.get());
+}
+
+
+template <>
+template <typename T>
+Socket<network::Address>::operator Try<Socket<T>>() const
+{
+  Try<T> t = convert<T>(address());
+  if (t.isError()) {
+    return Error("Could not convert address: " + t.error());
+  }
+  return Socket<T>(impl);
 }
 
 
