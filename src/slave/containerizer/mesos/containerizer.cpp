@@ -443,8 +443,10 @@ Try<MesosContainerizer*> MesosContainerizer::create(
     {"gpu/nvidia",
       [&nvidia] (const Flags& flags) -> Try<Isolator*> {
         if (!nvml::isAvailable()) {
-          return Error("Cannot create the Nvidia GPU isolator:"
-                       " NVML is not available");
+          LOG(ERROR) << "Cannot create the Nvidia GPU isolator:"
+                        " NVML is not available";
+
+          return nullptr;
         }
 
         CHECK_SOME(nvidia)
@@ -504,7 +506,9 @@ Try<MesosContainerizer*> MesosContainerizer::create(
                    isolator.error());
     }
 
-    isolators.push_back(Owned<Isolator>(isolator.get()));
+    if (isolator.get() != nullptr) {
+      isolators.push_back(Owned<Isolator>(isolator.get()));
+    }
   }
 
   // Next, apply any custom isolators in the order given by the flags.
