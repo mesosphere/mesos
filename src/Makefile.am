@@ -2048,6 +2048,11 @@ inverse_offer_framework_SOURCES = examples/inverse_offer_framework.cpp
 inverse_offer_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
 inverse_offer_framework_LDADD = libmesos.la $(LDADD)
 
+check_PROGRAMS += rpc-authn-framework
+rpc_authn_framework_SOURCES = examples/rpc_authn_framework.cpp
+rpc_authn_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
+rpc_authn_framework_LDADD = libmesos.la $(LDADD)
+
 check_PROGRAMS += load-generator-framework
 load_generator_framework_SOURCES = examples/load_generator_framework.cpp
 load_generator_framework_CPPFLAGS = $(MESOS_CPPFLAGS)
