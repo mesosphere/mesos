@@ -102,11 +102,6 @@ private:
   // when doing a `link()` and also stored in `persists`.
   hashmap<int_fd, network::inet::Socket> sockets;
 
-  // Collection of sockets that should be disposed when they are
-  // finished being used (e.g., when there is no more data to send on
-  // them).
-  hashset<int_fd> dispose;
-
   // Map from socket to socket address.
   hashmap<int_fd, network::inet::Address> addresses;
 

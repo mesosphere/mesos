@@ -1886,12 +1886,6 @@ void SocketManager::send(Message&& message, const SocketImpl::Kind& kind)
       CHECK(sockets.count(s) > 0);
       socket = sockets.at(s);
 
-      // Update whether or not this socket should get disposed after
-      // there is no more data to send.
-      if (!persist) {
-        dispose.insert(socket.get());
-      }
-
       if (outgoing.count(socket.get()) > 0) {
         outgoing[socket.get()].push(new MessageEncoder(message));
         return;
@@ -1921,8 +1915,6 @@ void SocketManager::send(Message&& message, const SocketImpl::Kind& kind)
 
       addresses.emplace(s, address);
       temps.emplace(address, s);
-
-      dispose.insert(s);
 
       // Initialize the outgoing queue.
       outgoing[s];
@@ -1976,43 +1968,59 @@ Encoder* SocketManager::next(int_fd s)
         // No more messages ... erase the outgoing queue.
         outgoing.erase(s);
 
-        if (dispose.count(s) > 0) {
-          // This is either a temporary socket we created or it's a
-          // socket that we were receiving data from and possibly
-          // sending HTTP responses back on. Clean up either way.
+        // And if this was a temporary socket go ahead and clean it up
+        // too (this is the _definition_ of temporary, i.e., once
+        // we're done sending any messages then we clean up the
+        // socket).
+        if (temps.containsValue(s)) {
           Option<Address> address = addresses.get(s);
-          if (address.isSome()) {
-            CHECK(temps.count(address.get()) > 0 && temps[address.get()] == s);
-            temps.erase(address.get());
-            addresses.erase(s);
-          }
 
-          dispose.erase(s);
+          // We should always have an address because any socket we
+          // put in `temps` we've also put in `addresses` (see
+          // `SocketManager::send()`).
+          CHECK_SOME(address);
 
+          temps.erase(address.get());
+
+          addresses.erase(s);
+
+          // Grab the socket so we can perform a `Socket::shutdown()`
+          // on it below after we've removed it from `sockets`.
           auto iterator = sockets.find(s);
-
-          // We don't actually close the socket (we wait for the Socket
-          // abstraction to close it once there are no more references),
-          // but we do shutdown the receiving end so any DataDecoder
-          // will get cleaned up (which might have the last reference).
-
-          // Hold on to the Socket and remove it from the 'sockets'
-          // map so that in the case where 'shutdown()' ends up
-          // calling close the termination logic is not run twice.
           Socket socket = iterator->second;
-          sockets.erase(iterator);
+          sockets.erase(s);
 
+          // Note that we don't invoke `exited()` because the socket
+          // was temporary (i.e., it was not used to link otherwise it
+          // would have been in `persists` not `temps`). We also don't
+          // call `SocketManager::close()` because we've already
+          // cleaned up all of the data structures we need to in this
+          // function. We do, however, call `Socket::shutdown()`
+          // because we want the receive loop to return from the call
+          // to `Socket::recv()` due to getting an EOF (recall that
+          // the receive loop for all outgoing sockets, i.e.,
+          // persistent and temporary, just reads and ignores any data
+          // as a safety from someone sending lots of data that fills
+          // up buffers).
+
+          // Failure here could be due to reasons including that the
+          // underlying socket is already closed so it by itself
+          // doesn't necessarily suggest anything wrong.
           Try<Nothing, SocketError> shutdown = socket.shutdown();
 
-          // Failure here could be due to reasons including that the underlying
-          // socket is already closed so it by itself doesn't necessarily
-          // suggest anything wrong.
-          if (shutdown.isError()) {
-            LOG(INFO) << "Failed to shutdown socket with fd " << socket.get()
-                      << ", address " << (socket.address().isSome()
-                                            ? stringify(socket.address().get())
-                                            : "N/A")
-                      << ": " << shutdown.error().message;
+          // Avoid logging an error when the shutdown was triggered on
+          // a socket that is not connected.
+          if (shutdown.isError() &&
+#ifdef __WINDOWS__
+              shutdown.error().code != WSAENOTCONN) {
+#else // __WINDOWS__
+            shutdown.error().code != ENOTCONN) {
+#endif // __WINDOWS__
+            LOG(ERROR) << "Failed to shutdown socket with fd " << socket.get()
+                       << ", address " << (socket.address().isSome()
+                                           ? stringify(socket.address().get())
+                                           : "N/A")
+                       << ": " << shutdown.error().message;
           }
         }
       }
@@ -2058,7 +2066,6 @@ void SocketManager::close(int_fd s)
         addresses.erase(s);
       }
 
-      dispose.erase(s);
       auto iterator = sockets.find(s);
 
       // We need to stop any 'ignore_data' receivers as they may have
@@ -2230,12 +2237,6 @@ void SocketManager::swap_implementing_socket(
 
     sockets.erase(from_fd);
     sockets.emplace(to_fd, to);
-
-    // Update the dispose set if this is a temporary link.
-    if (dispose.count(from_fd) > 0) {
-      dispose.insert(to_fd);
-      dispose.erase(from_fd);
-    }
 
     // Update the fd that this address is associated with. Once we've
     // done this we can update the 'temps' and 'persists'
