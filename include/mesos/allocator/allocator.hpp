@@ -96,7 +96,8 @@ public:
         inverseOfferCallback,
       const hashmap<std::string, double>& weights,
       const Option<std::set<std::string>>&
-        fairnessExcludeResourceNames = None()) = 0;
+        fairnessExcludeResourceNames = None(),
+      bool filterGpuResources = true) = 0;
 
   /**
    * Informs the allocator of the recovered state from the master.

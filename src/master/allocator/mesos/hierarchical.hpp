@@ -103,7 +103,8 @@ public:
         inverseOfferCallback,
       const hashmap<std::string, double>& weights,
       const Option<std::set<std::string>>&
-        fairnessExcludeResourceNames = None());
+        fairnessExcludeResourceNames = None(),
+      bool filterGpuResources = true);
 
   void recover(
       const int _expectedAgentCount,
@@ -446,6 +447,9 @@ protected:
 
   // Resources (by name) that will be excluded from a role's fair share.
   Option<std::set<std::string>> fairnessExcludeResourceNames;
+
+  // Filter GPU resources based on the `GPU_RESOURCES` framework capability.
+  bool filterGpuResources;
 
   // There are two stages of allocation. During the first stage resources
   // are allocated only to frameworks in roles with quota set. During the

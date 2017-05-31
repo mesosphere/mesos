@@ -58,7 +58,8 @@ public:
         inverseOfferCallback,
       const hashmap<std::string, double>& weights,
       const Option<std::set<std::string>>&
-        fairnessExcludeResourceNames = None());
+        fairnessExcludeResourceNames = None(),
+      bool filterGpuResources = true);
 
   void recover(
       const int expectedAgentCount,
@@ -193,7 +194,8 @@ public:
         inverseOfferCallback,
       const hashmap<std::string, double>& weights,
       const Option<std::set<std::string>>&
-        fairnessExcludeResourceNames = None()) = 0;
+        fairnessExcludeResourceNames = None(),
+      bool filterGpuResources = true) = 0;
 
   virtual void recover(
       const int expectedAgentCount,
@@ -335,7 +337,8 @@ inline void MesosAllocator<AllocatorProcess>::initialize(
               const hashmap<SlaveID, UnavailableResources>&)>&
       inverseOfferCallback,
     const hashmap<std::string, double>& weights,
-    const Option<std::set<std::string>>& fairnessExcludeResourceNames)
+    const Option<std::set<std::string>>& fairnessExcludeResourceNames,
+    bool filterGpuResources)
 {
   process::dispatch(
       process,
@@ -344,7 +347,8 @@ inline void MesosAllocator<AllocatorProcess>::initialize(
       offerCallback,
       inverseOfferCallback,
       weights,
-      fairnessExcludeResourceNames);
+      fairnessExcludeResourceNames,
+      filterGpuResources);
 }
 
 
