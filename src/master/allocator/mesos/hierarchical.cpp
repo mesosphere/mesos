@@ -142,13 +142,15 @@ void HierarchicalAllocatorProcess::initialize(
              const hashmap<SlaveID, UnavailableResources>&)>&
       _inverseOfferCallback,
     const hashmap<string, double>& _weights,
-    const Option<set<string>>& _fairnessExcludeResourceNames)
+    const Option<set<string>>& _fairnessExcludeResourceNames,
+    bool _filterGpuResources)
 {
   allocationInterval = _allocationInterval;
   offerCallback = _offerCallback;
   inverseOfferCallback = _inverseOfferCallback;
   weights = _weights;
   fairnessExcludeResourceNames = _fairnessExcludeResourceNames;
+  filterGpuResources = _filterGpuResources;
   initialized = true;
   paused = false;
 
@@ -1525,7 +1527,8 @@ void HierarchicalAllocatorProcess::__allocate()
         // Only offer resources from slaves that have GPUs to
         // frameworks that are capable of receiving GPUs.
         // See MESOS-5634.
-        if (!framework.capabilities.gpuResources &&
+        if (filterGpuResources &&
+            !framework.capabilities.gpuResources &&
             slave.total.gpus().getOrElse(0) > 0) {
           continue;
         }
@@ -1690,7 +1693,8 @@ void HierarchicalAllocatorProcess::__allocate()
         // Only offer resources from slaves that have GPUs to
         // frameworks that are capable of receiving GPUs.
         // See MESOS-5634.
-        if (!framework.capabilities.gpuResources &&
+        if (filterGpuResources &&
+            !framework.capabilities.gpuResources &&
             slave.total.gpus().getOrElse(0) > 0) {
           continue;
         }
