@@ -365,9 +365,9 @@ public:
 
   ProcessReference use(const UPID& pid);
 
-  void handle(
-      const Socket& socket,
-      Request* request);
+  Future<Response> handle(
+      const network::Socket& socket,
+      std::unique_ptr<Request>&& request);
 
   bool deliver(
       ProcessBase* receiver,
@@ -693,14 +693,14 @@ static void transport(
 // headers will be set), or a client that speaks the libprocess
 // protocol (i.e. only the "Libprocess-From" header will be set).
 // This function returns true for either case.
-static bool libprocess(Request* request)
+static bool libprocess(const Request& request)
 {
   return
-    (request->method == "POST" &&
-     request->headers.contains("User-Agent") &&
-     request->headers["User-Agent"].find("libprocess/") == 0) ||
-    (request->method == "POST" &&
-     request->headers.contains("Libprocess-From"));
+    (request.method == "POST" &&
+     request.headers.contains("User-Agent") &&
+     request.headers.get("User-Agent")->find("libprocess/") == 0) ||
+    (request.method == "POST" &&
+     request.headers.contains("Libprocess-From"));
 }
 
 
@@ -839,9 +839,22 @@ void decode_recv(
       return;
     }
 
+    PID<HttpProxy> proxy = socket_manager->proxy(socket);
+
     foreach (Request* request, requests) {
       request->client = address.get();
-      process_manager->handle(socket, request);
+
+      // Need a copy of `request` for `dispatch()` below since we'll
+      // move ownership into `ProcessManager::handle()`.
+      Request copy = *request;
+
+      Future<Response> response = process_manager->handle(
+          socket,
+          std::unique_ptr<Request>(request));
+
+      // Enqueue the response with the HttpProxy so that it respects
+      // the order of requests to account for HTTP/1.1 pipelining.
+      dispatch(proxy, &HttpProxy::handle, response, std::move(copy));
     }
   }
 
@@ -2548,86 +2561,61 @@ ProcessReference ProcessManager::use(const UPID& pid)
 }
 
 
-void ProcessManager::handle(
-    const Socket& socket,
-    Request* request)
+Future<Response> ProcessManager::handle(
+    const network::Socket& s,
+    std::unique_ptr<Request>&& request)
 {
-  CHECK(request != nullptr);
+  // Downcast to an inet::Socket.
+  Try<Socket> socket = s;
+  CHECK_SOME(socket);
 
   // Start by checking that the path starts with a '/'.
   if (request->url.path.find('/') != 0) {
     VLOG(1) << "Returning '400 Bad Request' for '" << request->url.path << "'";
-
-    // Get the HttpProxy pid for this socket.
-    PID<HttpProxy> proxy = socket_manager->proxy(socket);
-
-    // Enqueue the response with the HttpProxy so that it respects the
-    // order of requests to account for HTTP/1.1 pipelining.
-    dispatch(
-        proxy,
-        &HttpProxy::enqueue,
-        BadRequest("Request URL path must start with '/'"),
-        *request);
-
-    // Cleanup request.
-    delete request;
-    return;
+    return BadRequest("Request URL path must start with '/'");
   }
+
+  // We need to grab a copy of `request->client` and `request->url`
+  // because we can't move-capture `request` into the lambda below.
+  //
+  // TODO(benh): with C++14 let's move-capture `request` instead.
+  Option<network::Address> client = request->client;
+  http::URL url = request->url;
 
   // Check if this is a libprocess request (i.e., 'User-Agent:
   // libprocess/id@ip:port') and if so, parse as a message.
-  if (libprocess(request)) {
+  if (libprocess(*request)) {
     // It is guaranteed that the continuation would run before the next
     // request arrives. Also, it's fine to pass the `this` pointer to the
     // continuation as this would get executed synchronously (if still pending)
     // from `SocketManager::finalize()` due to it closing all active sockets
     // during libprocess finalization.
-    parse(*request)
-      .onAny([socket, request](const Future<MessageEvent*>& future) {
-        // Get the HttpProxy pid for this socket.
-        PID<HttpProxy> proxy = socket_manager->proxy(socket);
-
-        if (!future.isReady()) {
-          Response response = InternalServerError(
-              future.isFailed() ? future.failure() : "discarded future");
-
-          dispatch(proxy, &HttpProxy::enqueue, response, *request);
-
-          VLOG(1) << "Returning '" << response.status << "' for '"
-                  << request->url.path << "': " << response.body;
-
-          delete request;
-          return;
-        }
-
-        MessageEvent* event = CHECK_NOTNULL(future.get());
-
+    return parse(*request)
+      .recover([](const Future<MessageEvent*>& future) {
+        // Log any parsing errors but propagate the error (i.e., don't
+        // actually recover in any way).
+        VLOG(1) << "Failed to parse message: " << future;
+        return future;
+      })
+      .then([this, client, url](MessageEvent* event) -> Response {
         // Verify that the UPID this peer is claiming is on the same IP
         // address the peer is sending from.
         if (libprocess_flags->require_peer_address_ip_match) {
-          CHECK_SOME(request->client);
+          CHECK_SOME(client);
 
           // If the client address is not an IP address (e.g. coming
           // from a domain socket), we also reject the message.
           Try<Address> client_ip_address =
-            network::convert<Address>(request->client.get());
+            network::convert<Address>(client.get());
 
           if (client_ip_address.isError() ||
               event->message.from.address.ip != client_ip_address->ip) {
             Response response = BadRequest(
                 "UPID IP address validation failed: Message from " +
                 stringify(event->message.from) + " was sent from IP " +
-                stringify(request->client.get()));
-
-            dispatch(proxy, &HttpProxy::enqueue, response, *request);
-
-            VLOG(1) << "Returning '" << response.status << "'"
-                    << " for '" << request->url.path << "'"
-                    << ": " << response.body;
-
-            delete request;
+                stringify(client.get()));
             delete event;
-            return;
+            return response;
           }
         }
 
@@ -2640,38 +2628,21 @@ void ProcessManager::handle(
         // version of libprocess that didn't properly ignore
         // responses. Now we always send a response.
         if (accepted) {
-          VLOG(2) << "Delivered libprocess message to " << request->url.path;
-          dispatch(proxy, &HttpProxy::enqueue, Accepted(), *request);
-        } else {
-          VLOG(1) << "Failed to deliver libprocess message to "
-                  << request->url.path;
-          dispatch(proxy, &HttpProxy::enqueue, NotFound(), *request);
+          VLOG(2) << "Delivered libprocess message to " << url.path;
+          return Accepted();
         }
 
-        delete request;
-        return;
+        VLOG(1) << "Failed to deliver libprocess message to " << url.path;
+
+        return NotFound();
       });
-
-    return;
   }
-
-  // Treat this as an HTTP request.
 
   // Ignore requests with relative paths (i.e., contain "/..").
   if (request->url.path.find("/..") != string::npos) {
     VLOG(1) << "Returning '404 Not Found' for '" << request->url.path
             << "' (ignoring requests with relative paths)";
-
-    // Get the HttpProxy pid for this socket.
-    PID<HttpProxy> proxy = socket_manager->proxy(socket);
-
-    // Enqueue the response with the HttpProxy so that it respects the
-    // order of requests to account for HTTP/1.1 pipelining.
-    dispatch(proxy, &HttpProxy::enqueue, NotFound(), *request);
-
-    // Cleanup request.
-    delete request;
-    return;
+    return NotFound();
   }
 
   // Split the path by '/'.
@@ -2701,7 +2672,7 @@ void ProcessManager::handle(
 
   synchronized (firewall_mutex) {
     foreach (const Owned<firewall::FirewallRule>& rule, firewallRules) {
-      Option<Response> rejection = rule->apply(socket, *request);
+      Option<Response> rejection = rule->apply(socket.get(), *request);
       if (rejection.isSome()) {
         VLOG(1) << "Returning '" << rejection->status << "' for '"
                 << request->url.path << "' (firewall rule forbids request)";
@@ -2709,20 +2680,7 @@ void ProcessManager::handle(
         // TODO(arojas): Get rid of the duplicated code to return an
         // error.
 
-        // Get the HttpProxy pid for this socket.
-        PID<HttpProxy> proxy = socket_manager->proxy(socket);
-
-        // Enqueue the response with the HttpProxy so that it respects
-        // the order of requests to account for HTTP/1.1 pipelining.
-        dispatch(
-            proxy,
-            &HttpProxy::enqueue,
-            rejection.get(),
-            *request);
-
-        // Cleanup request.
-        delete request;
-        return;
+        return rejection.get();
       }
     }
   }
@@ -2732,31 +2690,19 @@ void ProcessManager::handle(
     // into the HttpEvent created below.
     Promise<Response>* promise(new Promise<Response>());
 
-    PID<HttpProxy> proxy = socket_manager->proxy(socket);
-
-    // Enqueue the response with the HttpProxy so that it respects the
-    // order of requests to account for HTTP/1.1 pipelining.
-    dispatch(proxy, &HttpProxy::handle, promise->future(), *request);
+    Future<Response> future = promise->future();
 
     // TODO(benh): Use the sender PID in order to capture
     // happens-before timing relationships for testing.
-    deliver(receiver, new HttpEvent(request, promise));
+    deliver(receiver, new HttpEvent(std::move(request), promise));
 
-    return;
+    return future;
   }
 
   // This has no receiver, send error response.
   VLOG(1) << "Returning '404 Not Found' for '" << request->url.path << "'";
 
-  // Get the HttpProxy pid for this socket.
-  PID<HttpProxy> proxy = socket_manager->proxy(socket);
-
-  // Enqueue the response with the HttpProxy so that it respects the
-  // order of requests to account for HTTP/1.1 pipelining.
-  dispatch(proxy, &HttpProxy::enqueue, NotFound(), *request);
-
-  // Cleanup request.
-  delete request;
+  return NotFound();
 }
 
 

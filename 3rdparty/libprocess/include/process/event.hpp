@@ -147,6 +147,12 @@ struct HttpEvent : Event
     : request(_request),
       response(_response) {}
 
+  HttpEvent(
+      std::unique_ptr<http::Request>&& _request,
+      Promise<http::Response>* _response)
+    : request(std::move(_request)),
+      response(_response) {}
+
   HttpEvent(HttpEvent&&) = default;
   HttpEvent(const HttpEvent&) = delete;
   HttpEvent& operator=(HttpEvent&&) = default;
