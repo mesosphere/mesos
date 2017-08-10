@@ -68,6 +68,11 @@ class Flags : public flags::FlagsBase
 public:
   Flags()
   {
+    add(&name,
+        "name",
+        "Name to be used by the framework.",
+        "Balloon Framework");
+
     add(&master,
         "master",
         "Master to connect to.");
@@ -143,6 +148,7 @@ public:
         false);
   }
 
+  string name;
   string master;
   Bytes task_memory_usage_limit;
   Bytes task_memory;
@@ -218,7 +224,7 @@ public:
       LOG(INFO) << "Starting task " << taskId;
 
       TaskInfo task;
-      task.set_name("Balloon Task");
+      task.set_name(flags.name + " Task");
       task.mutable_task_id()->set_value(stringify(taskId));
       task.mutable_slave_id()->MergeFrom(offer.slave_id());
       task.mutable_resources()->CopyFrom(TASK_RESOURCES);
@@ -486,8 +492,8 @@ int main(int argc, char** argv)
 
   ExecutorInfo executor;
   executor.mutable_resources()->CopyFrom(resources);
-  executor.set_name("Balloon Executor");
   executor.set_source("balloon_test");
+  executor.set_name(flags.name + " Executor");
 
   // Determine the command to run the executor based on three possibilities:
   //   1) `--executor_command` was set, which overrides the below cases.
@@ -541,12 +547,6 @@ int main(int argc, char** argv)
     executor.mutable_command()->mutable_uris()->CopyFrom(parse.get());
   }
 
-  FrameworkInfo framework;
-  framework.set_user(os::user().get());
-  framework.set_name("Balloon Framework (C++)");
-  framework.set_checkpoint(flags.checkpoint);
-  framework.set_role("*");
-
   // Log any flag warnings (after logging is initialized by the scheduler).
   foreach (const flags::Warning& warning, load->warnings) {
     LOG(WARNING) << warning.message;
@@ -554,7 +554,7 @@ int main(int argc, char** argv)
 
   FrameworkInfo framework;
   framework.set_user(os::user().get());
-  framework.set_name("Balloon Framework (C++)");
+  framework.set_name(flags.name);
   framework.set_checkpoint(flags.checkpoint);
 
   MesosSchedulerDriver* driver;
