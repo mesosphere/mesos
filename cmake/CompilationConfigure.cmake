@@ -75,6 +75,11 @@ option(
   TRUE)
 
 option(
+  ENABLE_JEMALLOC_ALLOCATOR
+  "Use jemalloc as memory allocator for the master and agent binaries."
+  FALSE)
+
+option(
   ENABLE_LIBEVENT
   "Use libevent instead of libev as the core event loop implementation."
   FALSE)

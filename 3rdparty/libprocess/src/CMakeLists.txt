@@ -43,6 +43,7 @@ set(PROCESS_SRC
   io.cpp
   latch.cpp
   logging.cpp
+  memory_profiler.cpp
   metrics/metrics.cpp
   mime.cpp
   pid.cpp

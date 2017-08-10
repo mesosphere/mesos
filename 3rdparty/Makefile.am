@@ -59,6 +59,7 @@ GPERFTOOLS = gperftools-$(GPERFTOOLS_VERSION)
 GRPC = grpc-$(GRPC_VERSION)
 GTEST = $(GOOGLETEST)/googletest
 HTTP_PARSER = http-parser-$(HTTP_PARSER_VERSION)
+JEMALLOC = jemalloc-$(JEMALLOC_VERSION)
 LEVELDB = leveldb-$(LEVELDB_VERSION)
 LIBEV = libev-$(LIBEV_VERSION)
 NVML = nvml-$(NVML_VERSION)
@@ -79,6 +80,7 @@ EXTRA_DIST =			\
   $(GPERFTOOLS).tar.gz		\
   $(GRPC).tar.gz		\
   $(HTTP_PARSER).tar.gz		\
+  $(JEMALLOC).tar.bz2           \
   $(LEVELDB).tar.gz		\
   $(LIBEV).tar.gz		\
   $(NVML).tar.gz		\
@@ -121,6 +123,7 @@ CLEAN_EXTRACTED =		\
   $(GPERFTOOLS)			\
   $(GRPC)			\
   $(HTTP_PARSER)		\
+  $(JEMALLOC)			\
   $(LEVELDB)			\
   $(LIBEV)			\
   $(NVML)			\
@@ -134,10 +137,24 @@ CLEAN_EXTRACTED =		\
 # This is where the magic happens: we use stamp files as dependencies
 # which cause the packages to get extracted as necessary. We also
 # apply any patches as appropriate.
-%-stamp: %.tar.gz
-	gzip -d -c $^ | tar xf -
+
+define apply_patches_and_create_stamp =
 	test ! -e $(srcdir)/$*.patch || patch -d $* -p1 <$(srcdir)/$*.patch
 	touch $@
+endef
+
+# We use static pattern rules to vary the extraction command based on
+# the archive type. The syntax is
+#
+#   <list of files that the rule applies to>: <result file pattern>: <input file pattern>
+
+$(patsubst $(srcdir)/%.tar.gz,%-stamp,$(wildcard $(srcdir)/*.tar.gz)): %-stamp: $(srcdir)/%.tar.gz
+	gzip -d -c $^ | tar xf -
+	$(apply_patches_and_create_stamp)
+
+$(patsubst $(srcdir)/%.tar.bz2,%-stamp,$(wildcard $(srcdir)/*.tar.bz2)): %-stamp: $(srcdir)/%.tar.bz2
+	tar xjf $^
+	$(apply_patches_and_create_stamp)
 
 # Dependencies for all-local.
 ALL_LOCAL = # Initialize ALL_LOCAL so we can add to it.
@@ -251,6 +268,23 @@ BUILT_SOURCES += $(nodist_libry_http_parser_la_SOURCES)
 $(HTTP_PARSER)/http_parser.c: $(HTTP_PARSER)-stamp
 $(HTTP_PARSER)-build-stamp: libry_http_parser.la
 	touch $@
+endif
+
+
+if WITH_BUNDLED_JEMALLOC
+JEMALLOC_CONFIGURE_ARGS = \
+    --enable-stats --enable-prof --with-malloc-conf="prof:true,prof_active:false"
+
+LIB_JEMALLOC = $(JEMALLOC)/libjemalloc.la
+
+$(LIB_JEMALLOC): $(JEMALLOC)-build-stamp
+
+$(JEMALLOC)-build-stamp: $(JEMALLOC)-stamp
+	cd $(JEMALLOC) && ./configure $(JEMALLOC_CONFIGURE_ARGS) $(CONFIGURE_ARGS)
+	cd $(JEMALLOC) && $(MAKE) $(AM_MAKEFLAGS)
+	touch $@
+
+ALL_LOCAL += $(LIB_JEMALLOC)
 endif
 
 if WITH_BUNDLED_LIBEV
