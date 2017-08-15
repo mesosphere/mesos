@@ -1099,7 +1099,10 @@ protected:
 
     CHECK_EQ(SUBSCRIBED, state);
 
-    // TODO(anand): Add support for handling kill policies.
+    // TODO(anand): Add support for adjusting the remaining grace period if
+    // we receive another kill request while a task is being killed but has
+    // not terminated yet. See similar comments in the command executor
+    // for more context.
 
     LOG(INFO) << "Received kill for task '" << taskId << "'";
 
@@ -1115,6 +1118,16 @@ protected:
                    << "' as it is in the process of getting killed";
       return;
     }
+
+    // Send a 'TASK_KILLING' update if the framework can handle it.
+    CHECK_SOME(frameworkInfo);
+
+    if (protobuf::frameworkHasCapability(
+            frameworkInfo.get(),
+            FrameworkInfo::Capability::TASK_KILLING_STATE)) {
+        TaskStatus status = createTaskStatus(taskId, TASK_KILLING);
+        forward(status);
+     }
 
     kill(container, killPolicy);
   }
