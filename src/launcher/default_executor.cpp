@@ -230,7 +230,11 @@ public:
       }
 
       case Event::KILL: {
-        killTask(event.kill().task_id());
+        Option<KillPolicy> killPolicy = event.kill().has_kill_policy()
+          ? Option<KillPolicy>(event.kill().kill_policy())
+          : None();
+
+        killTask(event.kill().task_id(), killPolicy);
         break;
       }
 
@@ -966,7 +970,9 @@ protected:
     terminate(self());
   }
 
-  Future<Nothing> kill(Owned<Container> container)
+  Future<Nothing> kill(
+      Owned<Container> container,
+      const Option<KillPolicy>& killPolicy = None())
   {
     CHECK_EQ(SUBSCRIBED, state);
 
@@ -998,22 +1004,35 @@ protected:
       << " container " << container->containerId << " with SIGTERM signal";
 
     // Default grace period is set to 3s.
-    //
-    // TODO(anand): Add support for handling kill policies.
-    const Duration GRACE_PERIOD = Seconds(3);
+    Duration gracePeriod = Seconds(3);
 
-    LOG(INFO) << "Scheduling escalation to SIGKILL in " << GRACE_PERIOD
+    Option<KillPolicy> taskInfoKillPolicy;
+    if (container->taskInfo.has_kill_policy()) {
+      taskInfoKillPolicy = container->taskInfo.kill_policy();
+    }
+
+    // Kill policy provided in the `Kill` event takes precedence
+    // over kill policy specified when the task was launched.
+    if (killPolicy.isSome() && killPolicy->has_grace_period()) {
+      gracePeriod = Nanoseconds(killPolicy->grace_period().nanoseconds());
+    } else if (taskInfoKillPolicy.isSome() &&
+               taskInfoKillPolicy->has_grace_period()) {
+      gracePeriod =
+        Nanoseconds(taskInfoKillPolicy->grace_period().nanoseconds());
+    }
+
+    LOG(INFO) << "Scheduling escalation to SIGKILL in " << gracePeriod
               << " from now";
 
     const ContainerID& containerId = container->containerId;
 
-    delay(GRACE_PERIOD,
+    delay(gracePeriod,
           self(),
           &Self::escalated,
           connectionId.get(),
           containerId,
           container->taskInfo.task_id(),
-          GRACE_PERIOD);
+          gracePeriod);
 
     return kill(containerId, SIGTERM);
   }
@@ -1068,7 +1087,9 @@ protected:
     kill(containerId, SIGKILL);
   }
 
-  void killTask(const TaskID& taskId)
+  void killTask(
+      const TaskID& taskId,
+      const Option<KillPolicy>& killPolicy = None())
   {
     if (shuttingDown) {
       LOG(WARNING) << "Ignoring kill for task '" << taskId
@@ -1095,7 +1116,7 @@ protected:
       return;
     }
 
-    kill(container);
+    kill(container, killPolicy);
   }
 
   void taskCheckUpdated(
