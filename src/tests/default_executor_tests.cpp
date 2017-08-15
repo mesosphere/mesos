@@ -47,6 +47,7 @@
 
 #include "tests/cluster.hpp"
 #include "tests/containerizer.hpp"
+#include "tests/kill_policy_test_helper.hpp"
 #include "tests/mesos.hpp"
 
 using mesos::master::detector::MasterDetector;
@@ -528,6 +529,166 @@ TEST_P(DefaultExecutorTest, KillTask)
   // Even though the tasks were killed, the executor should exit gracefully.
   ASSERT_TRUE(executorFailure->has_status());
   ASSERT_EQ(0, executorFailure->status());
+}
+
+
+// This test verifies that the default executor can correctly perform
+// signal escalation i.e., send SIGTERM followed by SIGKILL if the
+// nested container does not terimate within a grace period.
+//
+// TODO(anand): This test has a runtime of ~3 seconds. Consider speeding it
+// up after we add support for custom kill policy to the default executor.
+TEST_P(DefaultExecutorTest, SignalEscalation)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  slave::Flags flags = CreateSlaveFlags();
+  flags.containerizers = GetParam();
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+  Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), flags);
+  ASSERT_SOME(slave);
+
+  auto scheduler = std::make_shared<v1::MockHTTPScheduler>();
+
+  Future<Nothing> connected;
+  EXPECT_CALL(*scheduler, connected(_))
+    .WillOnce(FutureSatisfy(&connected));
+
+  v1::scheduler::TestMesos mesos(
+      master.get()->pid,
+      ContentType::PROTOBUF,
+      scheduler);
+
+  AWAIT_READY(connected);
+
+  Future<v1::scheduler::Event::Subscribed> subscribed;
+  EXPECT_CALL(*scheduler, subscribed(_, _))
+    .WillOnce(FutureArg<1>(&subscribed));
+
+  Future<v1::scheduler::Event::Offers> offers;
+  EXPECT_CALL(*scheduler, offers(_, _))
+    .WillOnce(FutureArg<1>(&offers))
+    .WillRepeatedly(Return());
+
+  EXPECT_CALL(*scheduler, heartbeat(_))
+    .WillRepeatedly(Return()); // Ignore heartbeats.
+
+  {
+    Call call;
+    call.set_type(Call::SUBSCRIBE);
+    Call::Subscribe* subscribe = call.mutable_subscribe();
+    subscribe->mutable_framework_info()->CopyFrom(v1::DEFAULT_FRAMEWORK_INFO);
+
+    mesos.send(call);
+  }
+
+  AWAIT_READY(subscribed);
+  v1::FrameworkID frameworkId(subscribed->framework_id());
+
+  v1::Resources resources =
+    v1::Resources::parse("cpus:0.1;mem:32;disk:32").get();
+
+  v1::ExecutorInfo executorInfo;
+  executorInfo.set_type(v1::ExecutorInfo::DEFAULT);
+  executorInfo.mutable_executor_id()->CopyFrom(v1::DEFAULT_EXECUTOR_ID);
+  executorInfo.mutable_framework_id()->CopyFrom(frameworkId);
+  executorInfo.mutable_resources()->CopyFrom(resources);
+
+  AWAIT_READY(offers);
+  EXPECT_NE(0, offers->offers().size());
+
+  const v1::Offer& offer = offers->offers(0);
+  const v1::AgentID& agentId = offer.agent_id();
+
+  const string command = strings::format(
+      "%s %s --sleep_duration=15",
+      getTestHelperPath("test-helper"),
+      KillPolicyTestHelper::NAME).get();
+
+  v1::TaskInfo taskInfo =
+    v1::createTask(agentId, resources, command);
+
+  v1::TaskGroupInfo taskGroup;
+  taskGroup.add_tasks()->CopyFrom(taskInfo);
+
+  Future<v1::scheduler::Event::Update> update1;
+  EXPECT_CALL(*scheduler, update(_, _))
+    .WillOnce(FutureArg<1>(&update1));
+
+  {
+    Call call;
+    call.mutable_framework_id()->CopyFrom(frameworkId);
+    call.set_type(Call::ACCEPT);
+
+    Call::Accept* accept = call.mutable_accept();
+    accept->add_offer_ids()->CopyFrom(offer.id());
+
+    v1::Offer::Operation* operation = accept->add_operations();
+    operation->set_type(v1::Offer::Operation::LAUNCH_GROUP);
+
+    v1::Offer::Operation::LaunchGroup* launchGroup =
+      operation->mutable_launch_group();
+
+    launchGroup->mutable_executor()->CopyFrom(executorInfo);
+    launchGroup->mutable_task_group()->CopyFrom(taskGroup);
+
+    mesos.send(call);
+  }
+
+  AWAIT_READY(update1);
+
+  ASSERT_EQ(TASK_RUNNING, update1->status().state());
+  EXPECT_EQ(taskInfo.task_id(), update1->status().task_id());
+
+  // Acknowledge the TASK_RUNNING update to receive the next update.
+
+  {
+    Call call;
+    call.mutable_framework_id()->CopyFrom(frameworkId);
+    call.set_type(Call::ACKNOWLEDGE);
+
+    Call::Acknowledge* acknowledge = call.mutable_acknowledge();
+
+    acknowledge->mutable_task_id()->CopyFrom(
+        update1->status().task_id());
+
+    acknowledge->mutable_agent_id()->CopyFrom(offer.agent_id());
+    acknowledge->set_uuid(update1->status().uuid());
+
+    mesos.send(call);
+  }
+
+  // Kill the task. The task would block the SIGTERM signal and would
+  // only be killed when the default executor sends the SIGKILL signal.
+
+  Future<v1::scheduler::Event::Update> update2;
+  EXPECT_CALL(*scheduler, update(_, _))
+    .WillOnce(FutureArg<1>(&update2));
+
+  // The executor would commit suicide after the task is killed.
+  Future<v1::scheduler::Event::Failure> executorFailure;
+  EXPECT_CALL(*scheduler, failure(_, _))
+    .WillOnce(FutureArg<1>(&executorFailure));
+
+  {
+    Call call;
+    call.mutable_framework_id()->CopyFrom(frameworkId);
+    call.set_type(Call::KILL);
+
+    Call::Kill* kill = call.mutable_kill();
+    kill->mutable_task_id()->CopyFrom(update1->status().task_id());
+
+    mesos.send(call);
+  }
+
+  AWAIT_READY(update2);
+
+  ASSERT_EQ(TASK_KILLED, update2->status().state());
+  EXPECT_EQ(taskInfo.task_id(), update2->status().task_id());
+
+  AWAIT_READY(executorFailure);
 }
 
 
