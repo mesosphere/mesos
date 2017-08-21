@@ -795,7 +795,7 @@ void CheckerProcess::processCommandCheckResult(
   // see MESOS-7242.
   if (future.isReady() && WIFEXITED(future.get())) {
     const int exitCode = WEXITSTATUS(future.get());
-    VLOG(1) << name << " for task '" << taskId << "' returned: " << exitCode;
+    LOG(INFO) << name << " for task '" << taskId << "' returned: " << exitCode;
 
     CheckStatusInfo checkStatusInfo;
     checkStatusInfo.set_type(check.type());
@@ -956,8 +956,8 @@ void CheckerProcess::processHttpCheckResult(
   Result<CheckStatusInfo> result = None();
 
   if (future.isReady()) {
-    VLOG(1) << name << " for task '" << taskId << "'"
-            << " returned: " << future.get();
+    LOG(INFO) << name << " for task '" << taskId << "'"
+              << " returned: " << future.get();
 
     CheckStatusInfo checkStatusInfo;
     checkStatusInfo.set_type(check.type());
@@ -1097,8 +1097,8 @@ void CheckerProcess::processTcpCheckResult(
   Result<CheckStatusInfo> result = None();
 
   if (future.isReady()) {
-    VLOG(1) << name << " for task '" << taskId << "'"
-            << " returned: " << future.get();
+    LOG(INFO) << name << " for task '" << taskId << "'"
+              << " returned: " << future.get();
 
     CheckStatusInfo checkStatusInfo;
     checkStatusInfo.set_type(check.type());
