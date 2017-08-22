@@ -33,6 +33,8 @@
 #include <process/gtest.hpp>
 #include <process/http.hpp>
 
+#include <process/ssl/flags.hpp>
+
 #include <stout/duration.hpp>
 #include <stout/error.hpp>
 #include <stout/gtest.hpp>
@@ -380,7 +382,6 @@ TEST_P(ResourceProviderManagerHttpApiTest, AgentEndpoint)
   EXPECT_FALSE(event->get().subscribed().provider_id().value().empty());
 }
 
-
 class ResourceProviderRegistrarTest : public tests::MesosTest {};
 
 
@@ -461,6 +462,118 @@ TEST_F(ResourceProviderRegistrarTest, MasterRegistrar)
 
   AWAIT_READY(registrar.get()->apply(Owned<Registrar::Operation>(
       new RemoveResourceProvider(resourceProviderId))));
+}
+
+
+class ResourceProviderManagerTest : public ::testing::Test
+{
+public:
+  ResourceProviderManagerTest()
+    : endpointProcess(&resourceProviderManager),
+      pid(process::spawn(endpointProcess, false)) {}
+
+  ~ResourceProviderManagerTest()
+  {
+    process::terminate(pid);
+    process::wait(pid);
+  }
+
+  struct EndpointProcess : process::Process<EndpointProcess>
+  {
+    explicit EndpointProcess(ResourceProviderManager* _resourceProviderManager)
+      : resourceProviderManager(_resourceProviderManager) {}
+
+    void initialize() override
+    {
+      route(
+          "/api/v1/resource_provider",
+          None(),
+          defer(self(), [this](const http::Request& request) {
+            return resourceProviderManager->api(request, None());
+          }));
+    }
+
+    ResourceProviderManager* resourceProviderManager;
+  };
+
+  ResourceProviderManager resourceProviderManager;
+  EndpointProcess endpointProcess;
+  const PID<EndpointProcess> pid;
+};
+
+
+TEST_F(ResourceProviderManagerTest, Apply)
+{
+  v1::MockResourceProvider resourceProvider;
+
+  Future<Nothing> connected;
+  EXPECT_CALL(resourceProvider, connected())
+    .WillOnce(FutureSatisfy(&connected));
+
+  string scheme = "http";
+
+#ifdef USE_SSL_SOCKET
+  if (process::network::openssl::flags().enabled) {
+    scheme = "https";
+  }
+#endif
+
+  http::URL url(
+      scheme,
+      pid.address.ip,
+      pid.address.port,
+      pid.id + "/api/v1/resource_provider");
+
+  Owned<EndpointDetector> endpointDetector(new ConstantEndpointDetector(url));
+
+  resourceProvider.start(
+      endpointDetector, ContentType::PROTOBUF, v1::DEFAULT_CREDENTIAL);
+
+  AWAIT_READY(connected);
+
+  Future<Event::Subscribed> subscribed;
+  EXPECT_CALL(resourceProvider, subscribed(_))
+    .WillOnce(FutureArg<0>(&subscribed));
+
+  Call call;
+  call.set_type(Call::SUBSCRIBE);
+
+  Call::Subscribe* subscribe = call.mutable_subscribe();
+
+  mesos::v1::ResourceProviderInfo* resourceProviderInfo =
+    subscribe->mutable_resource_provider_info();
+
+  resourceProviderInfo->set_type("org.apache.mesos.rp.test");
+  resourceProviderInfo->set_name("test");
+
+  resourceProvider.send(call);
+
+  AWAIT_READY(subscribed);
+
+  Resource resource;
+  resource.mutable_provider_id()->set_value(subscribed->provider_id().value());
+  resource.set_name("disk");
+  resource.set_type(Value::SCALAR);
+  resource.mutable_scalar()->set_value(100);
+
+  Offer::Operation operation;
+  operation.set_type(Offer::Operation::CREATE_VOLUME);
+  operation.mutable_create_volume()->mutable_source()->CopyFrom(resource);
+  operation.mutable_create_volume()->set_target_type(
+      Resource::DiskInfo::Source::PATH);
+
+  Future<Event::Operation> event;
+  EXPECT_CALL(resourceProvider, operation(_)).WillOnce(FutureArg<0>(&event));
+
+  // We're free to set any value here because they're only important
+  // when handled in the master.
+  FrameworkID frameworkId;
+  frameworkId.set_value("foo");
+  const UUID operationUUID = UUID::random();
+
+  resourceProviderManager.apply(frameworkId, operation, operationUUID);
+
+  AWAIT_READY(event);
 }
 
 } // namespace tests {

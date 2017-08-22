@@ -17,11 +17,15 @@
 #ifndef __RESOURCE_PROVIDER_MANAGER_HPP__
 #define __RESOURCE_PROVIDER_MANAGER_HPP__
 
+#include <mesos/mesos.hpp>
+
 #include <process/authenticator.hpp>
 #include <process/future.hpp>
 #include <process/http.hpp>
 #include <process/owned.hpp>
 #include <process/queue.hpp>
+
+#include <stout/uuid.hpp>
 
 #include "resource_provider/message.hpp"
 
@@ -48,6 +52,12 @@ public:
   process::Future<process::http::Response> api(
       const process::http::Request& request,
       const Option<process::http::authentication::Principal>& principal) const;
+
+  // Applies an operation affecting resources of a resource provider.
+  void apply(
+      const FrameworkID& frameworkId,
+      const Offer::Operation& operation,
+      const UUID& operationUUID);
 
   // Returns a stream of messages from the resource provider manager.
   process::Queue<ResourceProviderMessage> messages() const;

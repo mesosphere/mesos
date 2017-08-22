@@ -31,11 +31,14 @@
 #include <process/id.hpp>
 #include <process/process.hpp>
 
+#include <stout/error.hpp>
 #include <stout/hashmap.hpp>
+#include <stout/option.hpp>
 #include <stout/protobuf.hpp>
 #include <stout/uuid.hpp>
 
 #include "common/http.hpp"
+#include "common/protobuf_utils.hpp"
 #include "common/recordio.hpp"
 
 #include "internal/devolve.hpp"
@@ -139,6 +142,11 @@ public:
   Future<http::Response> api(
       const http::Request& request,
       const Option<Principal>& principal);
+
+  void apply(
+      const FrameworkID& frameworkId,
+      const Offer::Operation& operation,
+      const UUID& operationUUID);
 
   Queue<ResourceProviderMessage> messages;
 
@@ -299,6 +307,63 @@ Future<http::Response> ResourceProviderManagerProcess::api(
 }
 
 
+void ResourceProviderManagerProcess::apply(
+    const FrameworkID& frameworkId,
+    const Offer::Operation& operation,
+    const UUID& operationUUID)
+{
+  const Resources& resources = protobuf::getConsumedResources(operation);
+
+  Option<ResourceProviderID> resourceProviderId;
+
+  foreach (const Resource& resource, resources) {
+    if (!resource.has_provider_id()) {
+      LOG(WARNING) << "Dropping Operation " << operationUUID.toString()
+                   << " because a resource does not have a resource provider";
+      return;
+    }
+
+    if (resourceProviderId.isSome() &&
+        resourceProviderId.get() != resource.provider_id()) {
+      LOG(WARNING) << "Dropping Operation " << operationUUID.toString()
+                   << " because its resources are from multiple"
+                   << " resource providers";
+      return;
+    }
+
+    resourceProviderId = resource.provider_id();
+  }
+
+  CHECK_SOME(resourceProviderId);
+
+  if (!resourceProviders.contains(resourceProviderId.get())) {
+    LOG(WARNING) << "Dropping Operation " << operationUUID.toString()
+                 << " for unknown resource provider "
+                 << resourceProviderId.get();
+    return;
+  }
+
+  ResourceProvider& resourceProvider =
+    resourceProviders.at(resourceProviderId.get());
+
+  Event event;
+  event.set_type(Event::OPERATION);
+  event.mutable_operation()->mutable_framework_id()->CopyFrom(frameworkId);
+  event.mutable_operation()->mutable_info()->CopyFrom(operation);
+  event.mutable_operation()->set_operation_uuid(operationUUID.toString());
+
+  // TODO(nfnt): Keep track of all resource provider version UUIDs in
+  // the manager and set it to the current one here.
+  event.mutable_operation()->set_resource_version_uuid(
+      UUID::random().toString());
+
+  if (!resourceProvider.http.send(event)) {
+    LOG(WARNING) << "Could not send operation to resource provider "
+                 << resourceProviderId.get();
+  }
+}
+
+
 void ResourceProviderManagerProcess::subscribe(
     const HttpConnection& http,
     const Call::Subscribe& subscribe)
@@ -396,6 +461,20 @@ Future<http::Response> ResourceProviderManager::api(
       &ResourceProviderManagerProcess::api,
       request,
       principal);
+}
+
+
+void ResourceProviderManager::apply(
+    const FrameworkID& frameworkId,
+    const Offer::Operation& operation,
+    const UUID& operationUUID)
+{
+  return dispatch(
+      process.get(),
+      &ResourceProviderManagerProcess::apply,
+      frameworkId,
+      operation,
+      operationUUID);
 }
 
 
