@@ -5090,26 +5090,178 @@ void Master::_accept(
       }
 
       case Offer::Operation::CREATE_VOLUME: {
-        // TODO(nfnt): Provide an implementation for 'CREATE_VOLUME'.
-        drop(framework, operation, "Unimplemented");
+        // Make sure this operation is valid.
+        Option<Error> error = validation::operation::validate(
+            operation.create_volume(),
+            slave->totalResources);
+
+        if (error.isSome()) {
+          drop(framework, operation, error->message);
+          break;
+        }
+
+        Resources resources = protobuf::getConsumedResources(operation);
+
+        if (!_offeredResources.contains(resources)) {
+          drop(framework,
+               operation,
+               "Invalid CREATE_VOLUME Operation: " +
+                 stringify(_offeredResources) + " does not contain " +
+                 stringify(resources));
+        }
+
+        _offeredResources -= resources;
+
+        LOG(INFO) << "Processing CREATE_VOLUME operation for resource "
+                  << operation.create_volume().source() << " from framework "
+                  << *framework << " to agent " << *slave;
+
+        const UUID uuid = UUID::random();
+
+        OfferOperation offerOperation;
+        offerOperation.mutable_framework_id()->CopyFrom(frameworkId);
+        offerOperation.mutable_info()->CopyFrom(operation);
+        offerOperation.set_operation_uuid(uuid.toString());
+
+        ApplyOfferOperationMessage message;
+        message.mutable_framework_id()->CopyFrom(frameworkId);
+        message.mutable_operation_info()->CopyFrom(operation);
+        message.set_operation_uuid(uuid.toString());
+
+        send(slave->pid, message);
+
         break;
       }
 
       case Offer::Operation::DESTROY_VOLUME: {
-        // TODO(nfnt): Provide an implementation for 'DESTROY_VOLUME'.
-        drop(framework, operation, "Unimplemented");
+        // Make sure this operation is valid.
+        Option<Error> error = validation::operation::validate(
+            operation.destroy_volume(),
+            slave->totalResources);
+
+        if (error.isSome()) {
+          drop(framework, operation, error->message);
+          break;
+        }
+
+        Resources resources = protobuf::getConsumedResources(operation);
+
+        if (!_offeredResources.contains(resources)) {
+          drop(framework,
+               operation,
+               "Invalid DESTROY_VOLUME Operation: " +
+                 stringify(_offeredResources) + " does not contain " +
+                 stringify(resources));
+        }
+
+        _offeredResources -= resources;
+
+        LOG(INFO) << "Processing DESTROY_VOLUME operation for resource "
+                  << operation.destroy_volume().volume() << " from framework "
+                  << *framework << " to agent " << *slave;
+
+        const UUID uuid = UUID::random();
+
+        OfferOperation offerOperation;
+        offerOperation.mutable_framework_id()->CopyFrom(frameworkId);
+        offerOperation.mutable_info()->CopyFrom(operation);
+        offerOperation.set_operation_uuid(uuid.toString());
+
+        ApplyOfferOperationMessage message;
+        message.mutable_framework_id()->CopyFrom(frameworkId);
+        message.mutable_operation_info()->CopyFrom(operation);
+        message.set_operation_uuid(uuid.toString());
+
+        send(slave->pid, message);
+
         break;
       }
 
       case Offer::Operation::CREATE_BLOCK: {
-        // TODO(nfnt): Provide an implementation for 'CREATE_BLOCK'.
-        drop(framework, operation, "Unimplemented");
+        // Make sure this operation is valid.
+        Option<Error> error = validation::operation::validate(
+            operation.create_block(),
+            slave->totalResources);
+
+        if (error.isSome()) {
+          drop(framework, operation, error->message);
+          break;
+        }
+
+        Resources resources = protobuf::getConsumedResources(operation);
+
+        if (!_offeredResources.contains(resources)) {
+          drop(framework,
+               operation,
+               "Invalid CREATE_BLOCK Operation: " +
+                 stringify(_offeredResources) + " does not contain " +
+                 stringify(resources));
+        }
+
+        _offeredResources -= resources;
+
+        LOG(INFO) << "Processing CREATE_BLOCK operation for resource "
+                  << operation.create_block().source() << " from framework "
+                  << *framework << " to agent " << *slave;
+
+        const UUID uuid = UUID::random();
+
+        OfferOperation offerOperation;
+        offerOperation.mutable_framework_id()->CopyFrom(frameworkId);
+        offerOperation.mutable_info()->CopyFrom(operation);
+        offerOperation.set_operation_uuid(uuid.toString());
+
+        ApplyOfferOperationMessage message;
+        message.mutable_framework_id()->CopyFrom(frameworkId);
+        message.mutable_operation_info()->CopyFrom(operation);
+        message.set_operation_uuid(uuid.toString());
+
+        send(slave->pid, message);
+
         break;
       }
 
       case Offer::Operation::DESTROY_BLOCK: {
-        // TODO(nfnt): Provide an implementation for 'DESTROY_BLOCK'.
-        drop(framework, operation, "Unimplemented");
+        // Make sure this operation is valid.
+        Option<Error> error = validation::operation::validate(
+            operation.destroy_block(),
+            slave->totalResources);
+
+        if (error.isSome()) {
+          drop(framework, operation, error->message);
+          break;
+        }
+
+        Resources resources = protobuf::getConsumedResources(operation);
+
+        if (!_offeredResources.contains(resources)) {
+          drop(framework,
+               operation,
+               "Invalid DESTROY_BLOCK Operation: " +
+                 stringify(_offeredResources) + " does not contain " +
+                 stringify(resources));
+        }
+
+        _offeredResources -= resources;
+
+        LOG(INFO) << "Processing DESTROY_BLOCK operation for resource "
+                  << operation.destroy_block().block() << " from framework "
+                  << *framework << " to agent " << *slave;
+
+        const UUID uuid = UUID::random();
+
+        OfferOperation offerOperation;
+        offerOperation.mutable_framework_id()->CopyFrom(frameworkId);
+        offerOperation.mutable_info()->CopyFrom(operation);
+        offerOperation.set_operation_uuid(uuid.toString());
+
+        ApplyOfferOperationMessage message;
+        message.mutable_framework_id()->CopyFrom(frameworkId);
+        message.mutable_operation_info()->CopyFrom(operation);
+        message.set_operation_uuid(uuid.toString());
+
+        send(slave->pid, message);
+
         break;
       }
 

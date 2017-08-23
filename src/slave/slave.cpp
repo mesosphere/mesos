@@ -707,6 +707,8 @@ void Slave::initialize()
       &Slave::ping,
       &PingSlaveMessage::connected);
 
+  install<ApplyOfferOperationMessage>(&Slave::apply);
+
   // Setup the '/api/v1' handler for streaming requests.
   RouteOptions options;
   options.requestStreaming = true;
@@ -4998,6 +5000,15 @@ void Slave::ping(const UPID& from, bool connected)
       detection);
 
   send(from, PongSlaveMessage());
+}
+
+
+void Slave::apply(const ApplyOfferOperationMessage& message)
+{
+  resourceProviderManager.apply(
+      message.framework_id(),
+      message.operation_info(),
+      UUID::fromString(message.operation_uuid()).get());
 }
 
 

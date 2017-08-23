@@ -233,6 +233,8 @@ public:
 
   void ping(const process::UPID& from, bool connected);
 
+  void apply(const ApplyOfferOperationMessage& message);
+
   // Handles the status update.
   // NOTE: If 'pid' is a valid UPID an ACK is sent to this pid
   // after the update is successfully handled. If pid == UPID()
