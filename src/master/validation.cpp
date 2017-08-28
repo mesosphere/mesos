@@ -794,6 +794,17 @@ Option<Error> validateAllocatedToSingleRole(const Resources& resources)
 }
 
 
+// Validates that the given resource is from a resource provider.
+Option<Error> validateResourceProviderResource(const Resource& resource)
+{
+  if (!resource.has_provider_id()) {
+    return Error("The resource doesn't have a resource provider ID");
+  }
+
+  return None();
+}
+
+
 Option<Error> validate(const RepeatedPtrField<Resource>& resources)
 {
   Option<Error> error = Resources::validate(resources);
@@ -2151,6 +2162,31 @@ Option<Error> validate(
 }
 
 
+
+Resource unallocated(const Resource& resource) {
+  Resource result = resource;
+  if (result.has_allocation_info()) {
+    result.clear_allocation_info();
+  }
+
+  return result;
+}
+
+
+// The operation can either contain allocated resources
+// (in the case of a framework accepting offers), or
+// unallocated resources (in the case of the operator
+// endpoints). To ensure we can check for the presence
+// of the volume in the resources in use by tasks and
+// executors, we unallocate both the volume and the
+// used resources before performing the contains check.
+Resources unallocated(const Resources& resources) {
+  Resources result = resources;
+  result.unallocate();
+  return result;
+}
+
+
 Option<Error> validate(
     const Offer::Operation::Destroy& destroy,
     const Resources& checkpointedResources,
@@ -2158,22 +2194,6 @@ Option<Error> validate(
     const hashmap<FrameworkID, hashmap<TaskID, TaskInfo>>& pendingTasks,
     const Option<FrameworkInfo>& frameworkInfo)
 {
-  // The operation can either contain allocated resources
-  // (in the case of a framework accepting offers), or
-  // unallocated resources (in the case of the operator
-  // endpoints). To ensure we can check for the presence
-  // of the volume in the resources in use by tasks and
-  // executors, we unallocate both the volume and the
-  // used resources before performing the contains check.
-  //
-  // TODO(bmahler): This lambda is copied in several places
-  // in the code, consider how best to pull this out.
-  auto unallocated = [](const Resources& resources) {
-    Resources result = resources;
-    result.unallocate();
-    return result;
-  };
-
   Resources volumes = unallocated(destroy.volumes());
 
   Option<Error> error = resource::validate(volumes);
@@ -2221,6 +2241,102 @@ Option<Error> validate(
         }
       }
     }
+  }
+
+  return None();
+}
+
+
+Option<Error> validate(
+    const Offer::Operation::CreateVolume& createVolume,
+    const Resources& totalResources)
+{
+  const Resource source = unallocated(createVolume.source());
+
+  Option<Error> error = resource::validate(Resources(source));
+  if (error.isSome()) {
+    return Error("Invalid resource: " + error.get().message);
+  }
+
+  error = resource::validateResourceProviderResource(source);
+  if (error.isSome()) {
+    return Error("Not a resource provider resource: " + error.get().message);
+  }
+
+  if (!totalResources.contains(source)) {
+    return Error("Source not found");
+  }
+
+  return None();
+}
+
+
+Option<Error> validate(
+    const Offer::Operation::DestroyVolume& destroyVolume,
+    const Resources& totalResources)
+{
+  const Resource volume = unallocated(destroyVolume.volume());
+
+  Option<Error> error = resource::validate(Resources(volume));
+  if (error.isSome()) {
+    return Error("Invalid resource: " + error.get().message);
+  }
+
+  error = resource::validateResourceProviderResource(volume);
+  if (error.isSome()) {
+    return Error("Not a resource provider resource: " + error.get().message);
+  }
+
+  if (!totalResources.contains(volume)) {
+    return Error("Volume not found");
+  }
+
+  return None();
+}
+
+
+Option<Error> validate(
+    const Offer::Operation::CreateBlock& createBlock,
+    const Resources& totalResources)
+{
+  const Resource source = unallocated(createBlock.source());
+
+  Option<Error> error = resource::validate(Resources(source));
+  if (error.isSome()) {
+    return Error("Invalid resource: " + error.get().message);
+  }
+
+  error = resource::validateResourceProviderResource(source);
+  if (error.isSome()) {
+    return Error("Not a resource provider resource: " + error.get().message);
+  }
+
+  if (!totalResources.contains(source)) {
+    return Error("Source not found");
+  }
+
+  return None();
+}
+
+
+Option<Error> validate(
+    const Offer::Operation::DestroyBlock& destroyBlock,
+    const Resources& totalResources)
+{
+  const Resource block = unallocated(destroyBlock.block());
+
+  Option<Error> error = resource::validate(Resources(block));
+  if (error.isSome()) {
+    return Error("Invalid resource: " + error.get().message);
+  }
+
+  error = resource::validateResourceProviderResource(block);
+  if (error.isSome()) {
+    return Error("Not a resource provider resource: " + error.get().message);
+  }
+
+  if (!totalResources.contains(block)) {
+    return Error("Block not found");
   }
 
   return None();

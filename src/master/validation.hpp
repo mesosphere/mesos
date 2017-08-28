@@ -298,6 +298,26 @@ Option<Error> validate(
     const hashmap<FrameworkID, hashmap<TaskID, TaskInfo>>& pendingTasks,
     const Option<FrameworkInfo>& frameworkInfo = None());
 
+
+Option<Error> validate(
+    const Offer::Operation::CreateVolume& createVolume,
+    const Resources& totalResources);
+
+
+Option<Error> validate(
+    const Offer::Operation::DestroyVolume& destroyVolume,
+    const Resources& totalResources);
+
+
+Option<Error> validate(
+    const Offer::Operation::CreateBlock& createBlock,
+    const Resources& totalResources);
+
+
+Option<Error> validate(
+    const Offer::Operation::DestroyBlock& destroyBlock,
+    const Resources& totalResources);
+
 } // namespace operation {
 
 } // namespace validation {
