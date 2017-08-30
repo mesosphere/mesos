@@ -140,13 +140,16 @@ Try<Owned<PortMapper>, PluginError> PortMapper::create(const string& _cniConfig)
 
   // While the 'args' field is optional in the CNI spec it is critical
   // to the port-mapper plugin to learn of any port-mappings that the
-  // framework might have requested for this container.
+  // framework might have requested for this container. So if it is
+  // not present just create a fake one
   Result<JSON::Object> args = cniConfig->find<JSON::Object>("args");
   if (!args.isSome()) {
-    return PluginError(
-        "Failed to get the required field 'args': " +
-        (args.isError() ? args.error() : "Not found"),
-        ERROR_BAD_ARGS);
+    // Args is not present. Create a fake args
+    JSON::Object _args;
+    JSON::Object mesos;
+    mesos.values["network_info"] = JSON::Object();
+    _args.values["org.apache.mesos"] = mesos;
+    args = _args;
   }
 
   // NOTE: We can't directly use `find` to check for 'network_info'
