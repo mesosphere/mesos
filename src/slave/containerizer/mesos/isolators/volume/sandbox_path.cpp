@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <sys/mount.h>
+
 #include <glog/logging.h>
 
 #include <process/future.hpp>
@@ -46,6 +48,7 @@ using process::Owned;
 using mesos::slave::ContainerClass;
 using mesos::slave::ContainerConfig;
 using mesos::slave::ContainerLaunchInfo;
+using mesos::slave::ContainerMountInfo;
 using mesos::slave::ContainerState;
 using mesos::slave::Isolator;
 
@@ -361,14 +364,10 @@ Future<Option<ContainerLaunchInfo>> VolumeSandboxPathIsolatorProcess::prepare(
                 << "'" << source << "' to '" << target << "' "
                 << "for container " << containerId;
 
-      CommandInfo* command = launchInfo.add_pre_exec_commands();
-      command->set_shell(false);
-      command->set_value("mount");
-      command->add_arguments("mount");
-      command->add_arguments("-n");
-      command->add_arguments("--rbind");
-      command->add_arguments(source);
-      command->add_arguments(target);
+      ContainerMountInfo* mount = launchInfo.add_mounts();
+      mount->set_source(source);
+      mount->set_target(target);
+      mount->set_flags(MS_BIND | MS_REC);
     } else {
       LOG(INFO) << "Linking SANDBOX_PATH volume from "
                 << "'" << source << "' to '" << target << "' "
