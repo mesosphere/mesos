@@ -108,6 +108,12 @@ private:
     // `WAIT_NESTED_CONTAINER` call has not been established yet.
     Option<Connection> waiting;
 
+    // TODO(bennoe): Create a real state machine instead of adding
+    // more and more ad-hoc boolean values.
+
+    // Indicates whether a container has been launched.
+    bool launched;
+
     // Indicates whether a status update acknowledgement
     // has been received for any status update.
     bool acknowledged;
@@ -323,7 +329,7 @@ protected:
     // tasks `WAIT_NESTED_CONTAINER` call has already succeeded, meaning the
     // agent knows about the tasks and corresponding containers.
     foreachvalue (const Owned<Container>& container, containers) {
-      if (!container->acknowledged) {
+      if (container->launched && !container->acknowledged) {
         subscribe->add_unacknowledged_tasks()->MergeFrom(container->taskInfo);
       }
     }
@@ -402,6 +408,24 @@ protected:
       containerId.mutable_parent()->CopyFrom(executorContainerId.get());
 
       containerIds.push_back(containerId);
+
+      containers[task.task_id()] = Owned<Container>(new Container{
+        containerId,
+        task,
+        taskGroup,
+        None(),
+        None(),
+        None(),
+        None(),
+        false,
+        false,
+        false,
+        false});
+
+      // Send out the initial TASK_STARTING update.
+      const TaskStatus status = createTaskStatus(
+        task.task_id(), TASK_STARTING, None(), None());
+      forward(status);
 
       agent::Call call;
       call.set_type(agent::Call::LAUNCH_NESTED_CONTAINER);
@@ -526,17 +550,7 @@ protected:
       const TaskInfo& task = taskGroup.tasks().Get(index++);
       const TaskID& taskId = task.task_id();
 
-      containers[taskId] = Owned<Container>(new Container{
-        containerId,
-        task,
-        taskGroup,
-        None(),
-        None(),
-        None(),
-        None(),
-        false,
-        false,
-        false});
+      containers.at(taskId)->launched = true;
 
       if (task.has_check()) {
         Try<Owned<checks::Checker>> checker =
@@ -1376,7 +1390,7 @@ private:
 
     CHECK_EQ(SUBSCRIBED, state);
     CHECK_SOME(connectionId);
-    CHECK(containers.contains(taskId));
+    CHECK(containers.contains(taskId) && containers.at(taskId)->launched);
 
     const Owned<Container>& container = containers.at(taskId);
 
@@ -1435,7 +1449,7 @@ private:
 
   LinkedHashMap<UUID, Call::Update> unacknowledgedUpdates;
 
-  // Active child containers.
+  // Child containers.
   LinkedHashMap<TaskID, Owned<Container>> containers;
 
   // There can be multiple simulataneous ongoing (re-)connection attempts
