@@ -96,6 +96,8 @@ layout: documentation
 
 ## Contributing to Mesos
 
+* [Beginner's Guide for Contributors](beginner-contribution.md) to get started contributing to Mesos for the first time.
+* [Advanced Contribution Guide](advanced-contribution.md) to learn the typical workflow used when contributing to Mesos.
 * [Committers and Maintainers](committers.md) a listing of project committers and component maintainers; useful when seeking feedback.
 * [Committing](committing.md) guidelines for committing changes.
 * [Development Roadmap](roadmap.md)
@@ -109,7 +111,6 @@ layout: documentation
 * [Release Guide](release-guide.md)
 * [Reopening a Review](reopening-reviews.md) for our policy around reviving reviews on ReviewBoard.
 * [Reporting an Issue, Improvement, or Feature](reporting-a-bug.md) for getting started with JIRA.
-* [Submitting a Patch](submitting-a-patch.md) for getting started with ReviewBoard and our tooling around it.
 * [Testing Patterns](testing-patterns.md) for tips and tricks used in Mesos tests.
 * [Working groups](working-groups.md) a listing of groups working on different components.
 
