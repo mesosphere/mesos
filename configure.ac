@@ -757,11 +757,11 @@ fi
 # suffixes. We include /include/apr-1 because we include <apr*>
 # headers directly.
 if test -n "`echo $with_apr`" ; then
-    CPPFLAGS="-isystem ${with_apr}/include/apr-1 \
-              -isystem ${with_apr}/include/apr-1.0 $CPPFLAGS"
+    CPPFLAGS="-I${with_apr}/include/apr-1 \
+              -I${with_apr}/include/apr-1.0 $CPPFLAGS"
     LDFLAGS="-L${with_apr}/lib $LDFLAGS"
 else
-    CPPFLAGS="-isystem /usr/include/apr-1 -isystem /usr/include/apr-1.0	\
+    CPPFLAGS="-I/usr/include/apr-1 -I/usr/include/apr-1.0	\
       $CPPFLAGS"
 fi
 
@@ -777,18 +777,8 @@ libapr-1 is required for mesos to build.
 -------------------------------------------------------------------
 ])])
 
-
-# We use "-isystem" instead of "-I" to add Boost to the include search
-# path. This disables compiler warnings inside Boost headers since we
-# can't easily fix them. See MESOS-3799.
-#
-# Note that the use of "-isystem" modifies header lookup order; the
-# preprocessor will first look for headers in *all* paths given with
-# "-I" and only then look into "-isystem" paths. This means that all
-# prefixes potentially containing Boost headers should be added with
-# "-isystem" as well.
 if test -n "`echo $with_boost`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_boost}/include"
+  CPPFLAGS="$CPPFLAGS -I${with_boost}/include"
 fi
 
 # Check if user has asked us to use a preinstalled Boost, or if they
@@ -858,7 +848,7 @@ AM_CONDITIONAL([WITH_BUNDLED_CONCURRENTQUEUE],
 # the CPPFLAGS and LDFLAGS with respective /include and /lib path
 # suffixes.
 if test -n "`echo $with_curl`" ; then
-    CPPFLAGS="-isystem ${with_curl}/include $CPPFLAGS"
+    CPPFLAGS="-I${with_curl}/include $CPPFLAGS"
     LDFLAGS="-L${with_curl}/lib $LDFLAGS"
 fi
 
@@ -880,7 +870,7 @@ if test "x$without_bundled_elfio" = "xyes" || \
     if test "$with_elfio" = "${with_elfio#/}"; then
       AC_MSG_ERROR([The path passed to --with-elfio must be absolute.])
     fi
-     CPPFLAGS="-isystem ${with_elfio} $CPPFLAGS"
+     CPPFLAGS="-I${with_elfio} $CPPFLAGS"
   fi
 
   AC_CHECK_HEADERS([elfio/elfio.h], [],
@@ -902,7 +892,7 @@ AM_CONDITIONAL([WITH_BUNDLED_ELFIO], [test "x$with_bundled_elfio" = "xyes"])
 # while extending it by /include and to LDFLAGS while extending it by
 # /lib.
 if test -n "`echo $with_glog`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_glog}/include"
+  CPPFLAGS="$CPPFLAGS -I${with_glog}/include"
   LDFLAGS="$LDFLAGS -L${with_glog}/lib"
 fi
 
@@ -944,12 +934,12 @@ GMOCKSRC="gmock-all.cc"
 GTESTSRC="gtest-all.cc"
 
 if test -n "`echo $with_gmock`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_gmock} -isystem ${with_gmock}/include \
-    -isystem ${with_gmock}/src -isystem ${with_gmock}/gtest \
-    -isystem ${with_gmock}/gtest/include -isystem ${with_gmock}/gtest/src"
+  CPPFLAGS="$CPPFLAGS -I${with_gmock} -I${with_gmock}/include \
+    -I${with_gmock}/src -I${with_gmock}/gtest \
+    -I${with_gmock}/gtest/include -I${with_gmock}/gtest/src"
 
 elif test "x$enable_bundled" != "xyes"; then
-  CPPFLAGS="$CPPFLAGS -isystem /usr/src/gmock"
+  CPPFLAGS="$CPPFLAGS -I/usr/src/gmock"
   # On system installations the deps are handled separately.
   # So insert a placeholder for substitution.
   GTESTSRC="stdio.h"
@@ -998,7 +988,7 @@ AC_SUBST([GTESTSRC])
 
 
 if test -n "`echo $with_http_parser`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_http_parser}/include"
+  CPPFLAGS="$CPPFLAGS -I${with_http_parser}/include"
   LDFLAGS="$LDFLAGS -L${with_http_parser}/lib"
 fi
 
@@ -1160,8 +1150,8 @@ __EOF__
     if test "$OS_NAME" = "darwin"; then
       while true; do # Loop until sucessful (via break) or exhausted options.
         m4_foreach([java_cppflags],
-                   [["-isystem $JAVA_HOME/include -isystem $JAVA_HOME/include/$OS_NAME"],
-                    ["-isystem /System/Library/Frameworks/JavaVM.framework/Headers"]],
+                   [["-I$JAVA_HOME/include -I$JAVA_HOME/include/$OS_NAME"],
+                    ["-I/System/Library/Frameworks/JavaVM.framework/Headers"]],
                    [JAVA_CPPFLAGS=java_cppflags
                     TRY_LINK_JNI([break])])
         # Exhausted options.
@@ -1179,7 +1169,7 @@ __EOF__
     else
       while true; do # Loop until sucessful (via break) or exhausted options.
         m4_foreach([java_cppflags],
-                   [["-isystem $JAVA_HOME/include -isystem $JAVA_HOME/include/$OS_NAME"]],
+                   [["-I$JAVA_HOME/include -I$JAVA_HOME/include/$OS_NAME"]],
                    [JAVA_CPPFLAGS=java_cppflags
                     TRY_LINK_JNI([break])])
         # Exhausted options.
@@ -1243,7 +1233,7 @@ AM_CONDITIONAL([HAS_JAVA], [test "x$has_java" = "xyes"])
 # CPPFLAGS while extending it by /include and to LDFLAGS while
 # extending it by /lib.
 if test -n "`echo $with_leveldb`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_leveldb}/include"
+  CPPFLAGS="$CPPFLAGS -I${with_leveldb}/include"
   LDFLAGS="$LDFLAGS -L${with_leveldb}/lib"
 fi
 
@@ -1292,7 +1282,7 @@ if test -z "`echo $with_libevent`" &&
 fi
 
 if test -n "`echo $with_libevent`"; then
-  CPPFLAGS="-isystem ${with_libevent}/include $CPPFLAGS"
+  CPPFLAGS="-I${with_libevent}/include $CPPFLAGS"
   LDFLAGS="-L${with_libevent}/lib $LDFLAGS"
 fi
 
@@ -1452,7 +1442,7 @@ if test "x$without_bundled_nvml" = "xyes" || \
     if test "$with_nvml" = "${with_nvml#/}"; then
       AC_MSG_ERROR([The path passed to --with-nvml must be absolute.])
     fi
-     CPPFLAGS="-isystem ${with_nvml} $CPPFLAGS"
+     CPPFLAGS="-I${with_nvml} $CPPFLAGS"
   fi
 
   AC_CHECK_HEADERS([nvidia/gdk/nvml.h], [],
@@ -1475,7 +1465,7 @@ AM_CONDITIONAL([WITH_BUNDLED_NVML],
 # CPPFLAGS while extending it by /include and to LDFLAGS while
 # extending it by /lib.
 if test -n "`echo $with_protobuf`"; then
-  PROTOBUF_CPPFLAGS="-isystem ${with_protobuf}/include"
+  PROTOBUF_CPPFLAGS="-I${with_protobuf}/include"
   PROTOBUF_LINKERFLAGS="-L${with_protobuf}/lib"
 
   CPPFLAGS="$PROTOBUF_CPPFLAGS $CPPFLAGS"
@@ -1552,7 +1542,6 @@ else
   PROTOBUF_JAR="\${MESOS_BUILD_DIR}/src/java/target/protobuf-java-3.3.0.jar"
 fi
 
-
 AM_CONDITIONAL([WITH_BUNDLED_PROTOBUF],
                [test "x$with_bundled_protobuf" = "xyes"])
 
@@ -1563,7 +1552,7 @@ AC_SUBST([PROTOCOMPILER])
 
 
 if test -n "`echo $with_libev`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_libev}/include"
+  CPPFLAGS="$CPPFLAGS -I${with_libev}/include"
   LDFLAGS="$LDFLAGS -L${with_libev}/lib"
 fi
 
@@ -1609,7 +1598,7 @@ fi
 
 
 if test -n "`echo $with_picojson`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_picojson}/include"
+  CPPFLAGS="$CPPFLAGS -I${with_picojson}/include"
 fi
 
 # Check if user has asked us to use a preinstalled picojson, or if
@@ -1645,7 +1634,7 @@ AM_CONDITIONAL([WITH_BUNDLED_PICOJSON], [test "x$with_bundled_picojson" = "xyes"
 # the CPPFLAGS and LDFLAGS with respective /include and /lib path
 # suffixes.
 if test -n "`echo $with_sasl`" ; then
-  CPPFLAGS="-isystem ${with_sasl}/include $CPPFLAGS"
+  CPPFLAGS="-I${with_sasl}/include $CPPFLAGS"
   LDFLAGS="-L${with_sasl}/lib $LDFLAGS"
 fi
 
@@ -1739,7 +1728,7 @@ if test -z "`echo $with_ssl`" &&
 fi
 
 if test -n "`echo $with_ssl`"; then
-  SSL_CPPFLAGS="-isystem ${with_ssl}/include"
+  SSL_CPPFLAGS="-I${with_ssl}/include"
   SSL_LINKERFLAGS="-L${with_ssl}/lib"
 
   CPPFLAGS="$SSL_CPPFLAGS $CPPFLAGS"
@@ -1842,10 +1831,10 @@ if test -z "`echo $with_svn`" &&
 fi
 
 if test -n "`echo $with_svn`"; then
-  CPPFLAGS="-isystem ${with_svn}/include/subversion-1 $CPPFLAGS"
+  CPPFLAGS="-I${with_svn}/include/subversion-1 $CPPFLAGS"
   LDFLAGS="-L${with_svn}/lib $LDFLAGS"
 else
-  CPPFLAGS="-isystem /usr/include/subversion-1 $CPPFLAGS"
+  CPPFLAGS="-I/usr/include/subversion-1 $CPPFLAGS"
 fi
 
 AC_CHECK_HEADERS([svn_version.h],
@@ -1923,7 +1912,7 @@ AM_CONDITIONAL([ENABLE_XFS_DISK_ISOLATOR], [test "x$enable_xfs_disk_isolator" = 
 # the CPPFLAGS and LDFLAGS with respective /include and /lib path
 # suffixes.
 if test -n "`echo $with_zlib`" ; then
-  ZLIB_CPPFLAGS="-isystem ${with_zlib}/include"
+  ZLIB_CPPFLAGS="-I${with_zlib}/include"
   ZLIB_LINKERFLAGS="-L${with_zlib}/lib"
 
   CPPFLAGS="$ZLIB_CPPFLAGS $CPPFLAGS"
@@ -2044,10 +2033,10 @@ AC_SUBST([GRPC_CXX_PLUGIN])
 # NOTE: The reason we append /include/zookeeper is because in mesos,
 # we include <zookeeper.h> rather than <zookeeper/zookeeper.h>.
 if test -n "`echo $with_zookeeper`"; then
-  CPPFLAGS="$CPPFLAGS -isystem ${with_zookeeper}/include/zookeeper"
+  CPPFLAGS="$CPPFLAGS -I${with_zookeeper}/include/zookeeper"
   LDFLAGS="$LDFLAGS -L${with_zookeeper}/lib"
 elif test "x$enable_bundled" != "xyes"; then
-  CPPFLAGS="$CPPFLAGS -isystem /usr/include/zookeeper"
+  CPPFLAGS="$CPPFLAGS -I/usr/include/zookeeper"
 fi
 
 
