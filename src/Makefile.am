@@ -2282,7 +2282,7 @@ MESOS_TEST_MODULES =		\
   libtestauthorizer.la		\
   libtestcontainer_logger.la	\
   libtesthook.la		\
-  libtesthttpauthenticator.la	\
+  libtesthttpauthentication.la	\
   libtestisolator.la		\
   libtestmastercontender.la	\
   libtestmasterdetector.la	\
@@ -2311,10 +2311,11 @@ libtestauthorizer_la_SOURCES = examples/test_authorizer_module.cpp
 libtestauthorizer_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 libtestauthorizer_la_LDFLAGS = $(MESOS_TEST_MODULE_LDFLAGS)
 
-# Library containing the test http authenticator module.
-libtesthttpauthenticator_la_SOURCES = examples/test_http_authenticator_module.cpp
-libtesthttpauthenticator_la_CPPFLAGS = $(MESOS_CPPFLAGS)
-libtesthttpauthenticator_la_LDFLAGS = $(MESOS_TEST_MODULE_LDFLAGS)
+# Library containing the test http authentication modules.
+libtesthttpauthentication_la_SOURCES =				\
+  examples/test_http_authentication_modules.cpp
+libtesthttpauthentication_la_CPPFLAGS = $(MESOS_CPPFLAGS)
+libtesthttpauthentication_la_LDFLAGS = $(MESOS_TEST_MODULE_LDFLAGS)
 
 # Library containing the test DRF allocator module.
 libtestallocator_la_SOURCES = examples/test_allocator_module.cpp

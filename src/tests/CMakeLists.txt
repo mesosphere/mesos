@@ -297,7 +297,7 @@ if (NOT WIN32)
     testcontainer_logger
     examplemodule
     testhook
-    testhttpauthenticator
+    testhttpauthentication
     testisolator
     testmastercontender
     testmasterdetector

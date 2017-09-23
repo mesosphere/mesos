@@ -211,7 +211,7 @@ static void addHttpAuthenticatorModules(Modules* modules)
 
   // Now add our test HTTP authenticator module.
   Modules::Library* library = modules->add_libraries();
-  library->set_file(getModulePath("testhttpauthenticator"));
+  library->set_file(getModulePath("testhttpauthentication"));
 
   // To add a new module from this library, create a new ModuleID enum
   // and tie it with a module name.
@@ -288,7 +288,7 @@ Try<Nothing> initModules(const Option<Modules>& modules)
   // Add authorizer modules from testauthorizer library.
   addAuthorizerModules(&mergedModules);
 
-  // Add HTTP authenticator modules from testhttpauthenticator library.
+  // Add HTTP authenticator modules from testhttpauthentication library.
   addHttpAuthenticatorModules(&mergedModules);
 
   // Add MasterContender module from testmastercontender library.

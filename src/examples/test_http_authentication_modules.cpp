@@ -14,30 +14,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <mesos/authentication/http/basic_authenticator_factory.hpp>
-
 #include <mesos/mesos.hpp>
 #include <mesos/module.hpp>
 
+#include <mesos/authentication/http/authenticatee.hpp>
+#include <mesos/authentication/http/basic_authenticator_factory.hpp>
+
+#include <mesos/module/http_authenticatee.hpp>
 #include <mesos/module/http_authenticator.hpp>
 
 #include <process/authenticator.hpp>
 
 #include <stout/hashmap.hpp>
 
+#include "authentication/http/basic_authenticatee.hpp"
+
 #include "logging/logging.hpp"
 
 using namespace mesos;
 
-using mesos::http::authentication::BasicAuthenticatorFactory;
 
-using process::http::authentication::Authenticator;
-
-
-static Authenticator* createHttpAuthenticator(const Parameters& parameters)
+static process::http::authentication::Authenticator* createHttpAuthenticator(
+    const Parameters& parameters)
 {
-  Try<Authenticator*> authenticator =
-    BasicAuthenticatorFactory::create(parameters);
+  Try<process::http::authentication::Authenticator*> authenticator =
+    mesos::http::authentication::BasicAuthenticatorFactory::create(parameters);
 
   if (authenticator.isError()) {
     LOG(ERROR) << "Failed to create basic HTTP authenticator: "
@@ -52,7 +53,7 @@ static Authenticator* createHttpAuthenticator(const Parameters& parameters)
 
 // Declares an HTTP Authenticator module named
 // 'org_apache_mesos_TestHttpBasicAuthenticator'.
-mesos::modules::Module<Authenticator>
+mesos::modules::Module<process::http::authentication::Authenticator>
 org_apache_mesos_TestHttpBasicAuthenticator(
     MESOS_MODULE_API_VERSION,
     MESOS_VERSION,
@@ -61,3 +62,23 @@ org_apache_mesos_TestHttpBasicAuthenticator(
     "Test HTTP Authenticator module.",
     nullptr,
     createHttpAuthenticator);
+
+
+static mesos::http::authentication::Authenticatee* createHttpAuthenticatee(
+    const mesos::Parameters&)
+{
+  return new mesos::http::authentication::BasicAuthenticatee;
+}
+
+
+// Declares an HTTP Authenticatee module named
+// 'org_apache_mesos_TestHttpBasicAuthenticatee'.
+mesos::modules::Module<mesos::http::authentication::Authenticatee>
+org_apache_mesos_TestHttpBasicAuthenticatee(
+    MESOS_MODULE_API_VERSION,
+    MESOS_VERSION,
+    "Apache Mesos",
+    "modules@mesos.apache.org",
+    "Test HTTP Authenticatee module.",
+    nullptr,
+    createHttpAuthenticatee);
