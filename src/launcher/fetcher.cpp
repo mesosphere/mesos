@@ -121,6 +121,16 @@ static Try<string> downloadWithHadoopClient(
 }
 
 
+void logResponseFromFile(const string& path)
+{
+  try<string> read = os::read(path);
+
+  if (read.isReady()) {
+    VLOG(2) << "HTTP Response:\n" + read;
+  }
+}
+
+
 static Try<string> downloadWithNet(
     const string& sourceUri,
     const string& destinationPath)
@@ -136,6 +146,7 @@ static Try<string> downloadWithNet(
 
   Try<int> code = net::download(sourceUri, destinationPath);
   if (code.isError()) {
+    logResponseFromFile(destinationPath);
     return Error("Error downloading resource: " + code.error());
   } else {
     // The status code for successful HTTP requests is 200, the status code
@@ -143,11 +154,13 @@ static Try<string> downloadWithNet(
     if (strings::startsWith(sourceUri, "ftp://") ||
         strings::startsWith(sourceUri, "ftps://")) {
       if (code.get() != 226) {
+        logResponseFromFile(destinationPath);
         return Error("Error downloading resource, received FTP return code " +
                      stringify(code.get()));
       }
     } else {
       if (code.get() != 200) {
+        logResponseFromFile(destinationPath);
         return Error("Error downloading resource, received HTTP return code " +
                      stringify(code.get()));
       }
@@ -535,6 +548,13 @@ int main(int argc, char* argv[])
     fetcherInfo.get().has_frameworks_home() ?
       Option<string>::some(fetcherInfo.get().frameworks_home()) :
         Option<string>::none();
+
+  string environmentLog = "Fetcher environment:\n";
+  foreachpair (const string& key, const string& value, os::environment()) {
+    environmentLog += key + "=" + value + "\n";
+  }
+
+  VLOG(2) << environmentLog;
 
   // Fetch each URI to a local file and chmod if necessary.
   foreach (const FetcherInfo::Item& item, fetcherInfo.get().items()) {
