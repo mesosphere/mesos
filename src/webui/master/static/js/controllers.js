@@ -51,13 +51,12 @@
   // (e.g., hosting '/slave/log' for each agent log, we don't
   // namespace metrics within '/metrics/snapshot', etc).
   function agentURLPrefix(agent, includeId) {
-    var port = agent.pid.substring(agent.pid.lastIndexOf(':') + 1);
-    var id = agent.pid.substring(0, agent.pid.indexOf('@'));
+    var processId = agent.pid.substring(0, agent.pid.indexOf('@'));
 
-    var url = '//' + agent.hostname + ':' + port;
+    var url = '/agent/' + agent.id;
 
     if (includeId) {
-      url += '/' + id;
+      url += '/' + processId;
     }
 
     return url;
@@ -371,6 +370,12 @@
   mesosApp.controller('MainCtrl', [
       '$scope', '$http', '$location', '$timeout', '$modal',
       function($scope, $http, $location, $timeout, $modal) {
+    // Redirect from the direct Mesos webui URL to the DC/OS URL that goes through adminrouter.
+    if ($location.port() === 5050) {
+      var url = $location.protocol() + "://" + $location.host() + "/mesos";
+      window.location = url;
+    }
+
     $scope.doneLoading = true;
 
     // Adding bindings into scope so that they can be used from within
@@ -547,7 +552,7 @@
         ).open();
       } else {
         pailer(
-            '//' + $scope.$location.host() + ':' + $scope.$location.port(),
+            '/mesos',
             '/master/log',
             'Mesos Master');
       }
