@@ -16,12 +16,12 @@ in C++, this typically requires that scheduler developers either use C++ or use
 a C++ binding to their language of choice (e.g., JNI when using JVM-based
 languages).
 
-2. By using the new HTTP API. This allows Mesos schedulers to be developed
+2. By using the newer HTTP API. This allows Mesos schedulers to be developed
 without using C++ or a native client library; instead, a custom scheduler
 interacts with the Mesos master via HTTP requests, as described below. Although
 it is theoretically possible to use the HTTP scheduler API "directly" (e.g., by
-using a generic HTTP library), most scheduler developers should use a library for
-their language of choice that manages the details of the HTTP API; see the
+using a generic HTTP library), most scheduler developers should use a library
+for their language of choice that manages the details of the HTTP API; see the
 document on [HTTP API client libraries](api-client-libraries.md) for a list.
 
 The v1 Scheduler HTTP API was introduced in Mesos 0.24.0. As of Mesos 1.0, it is
@@ -165,7 +165,7 @@ HTTP/1.1 202 Accepted
 ```
 
 ### ACCEPT
-Sent by the scheduler when it accepts offer(s) sent by the master. The `ACCEPT` request includes the type of operations (e.g., launch task, launch task group, reserve resources, create volumes) that the scheduler wants to perform on the offers. Note that until the scheduler replies (accepts or declines) to an offer, the offer's resources are considered allocated to the offer's role and to the framework. Also, any of the offer's resources not used in the `ACCEPT` call (e.g., to launch a task or task group) are considered declined and might be reoffered to other frameworks, meaning that they will not be reoffered to the scheduler for the amount of time defined by the filter. The same `OfferID` cannot be used in more than one `ACCEPT` call. These semantics might change when we add new features to Mesos (e.g., persistence, reservations, optimistic offers, resizeTask, etc.).
+Sent by the scheduler when it accepts offer(s) sent by the master. The `ACCEPT` request may include one or more operations (detailed information below) that the scheduler wants to perform on the offers. Note that until the scheduler replies (accepts or declines) to an offer, the offer's resources are considered allocated to the offer's role and to the framework. Also, any of the offer's resources not used in the `ACCEPT` call (e.g., to launch a task or task group) are considered declined and might be reoffered to other frameworks, meaning that they will not be reoffered to the scheduler for the amount of time defined by the filter. The same `OfferID` cannot be used in more than one `ACCEPT` call. These semantics might change when we add new features to Mesos (e.g., persistence, reservations, optimistic offers, resizeTask, etc.).
 
 The scheduler API uses `Filters.refuse_seconds` to specify the duration for which resources are considered declined. If `filters` is not set, then the default value defined in [mesos.proto](https://github.com/apache/mesos/blob/master/include/mesos/v1/mesos.proto) will be used.
 
@@ -180,50 +180,50 @@ Content-Type: application/json
 Mesos-Stream-Id: 130ae4e3-6b13-4ef4-baa9-9f2e85c3e9af
 
 {
-  "framework_id"   : {"value" : "12220-3440-12532-2345"},
-  "type"           : "ACCEPT",
-  "accept"         : {
-    "offer_ids"    : [
-                      {"value" : "12220-3440-12532-O12"}
-                     ],
-     "operations"  : [
-                      {
-                       "type"         : "LAUNCH",
-                       "launch"       : {
+  "framework_id" : {"value" : "12220-3440-12532-2345"},
+  "type"         : "ACCEPT",
+  "accept"       : {
+    "offer_ids"  : [
+                     {"value" : "12220-3440-12532-O12"}
+                   ],
+    "operations" : [
+                     {
+                       "type"   : "LAUNCH",
+                       "launch" : {
                          "task_infos" : [
-                                         {
-                                          "name"        : "My Task",
-                                          "task_id"     : {"value" : "12220-3440-12532-my-task"},
-                                          "agent_id"    : {"value" : "12220-3440-12532-S1233"},
-                                          "executor"    : {
-                                            "command"     : {
-                                              "shell"     : true,
-                                              "value"     : "sleep 1000"
+                                          {
+                                            "name"     : "My Task",
+                                            "task_id"  : {"value" : "12220-3440-12532-my-task"},
+                                            "agent_id" : {"value" : "12220-3440-12532-S1233"},
+                                            "executor" : {
+                                              "command" : {
+                                                "shell" : true,
+                                                "value" : "sleep 1000"
+                                              },
+                                              "executor_id" : {"value" : "12214-23523-my-executor"}
                                             },
-                                            "executor_id" : {"value" : "12214-23523-my-executor"}
-                                          },
-                                          "resources"   : [
-                                                           {
-                                "allocation_info": {"role": "engineering"},
-                                "name"  : "cpus",
-						            "role"  : "*",
-						            "type"  : "SCALAR",
-						            "scalar": {"value": 1.0}
-					                   },
-                                                           {
-						            "allocation_info": {"role": "engineering"},
-						            "name"  : "mem",
-						            "role"  : "*",
-						            "type"  : "SCALAR",
-						            "scalar": {"value": 128.0}
-					                   }
+                                            "resources" : [
+                                                            {
+                                                              "allocation_info": {"role": "engineering"},
+                                                              "name"  : "cpus",
+                                                              "role"  : "*",
+                                                              "type"  : "SCALAR",
+                                                              "scalar": {"value": 1.0}
+					                                                  },
+                                                            {
+                                                              "allocation_info": {"role": "engineering"},
+                                                              "name"  : "mem",
+                                                              "role"  : "*",
+                                                              "type"  : "SCALAR",
+                                                              "scalar": {"value": 128.0}
+					                                                  }
                                                           ]
-                                         }
+                                          }
                                         ]
                        }
-                      }
-                     ],
-     "filters"     : {"refuse_seconds" : 5.0}
+                     }
+                   ],
+    "filters" : {"refuse_seconds" : 5.0}
   }
 }
 
@@ -231,6 +231,102 @@ ACCEPT Response:
 HTTP/1.1 202 Accepted
 
 ```
+
+### Offer Operations
+
+In the `ACCEPT` call's `operations` field, one or more of the following operations may be listed.
+
+#### LAUNCH
+Sent by the scheduler to launch one or more tasks.
+
+```
+{
+  "type"   : "LAUNCH",
+  "launch" : {
+    "task_infos" : [
+                     {
+                       "name"     : "My Task",
+                       "task_id"  : {"value" : "12220-3440-12532-my-task"},
+                       "agent_id" : {"value" : "12220-3440-12532-S1233"},
+                       "executor" : {
+                                      "command" : {
+                                                    "shell" : true,
+                                                    "value" : "sleep 1000"
+                                                  },
+                                      "executor_id" : {"value" : "12214-23523-my-executor"}
+                                    },
+                       "resources" : [
+                                       {
+                                         "allocation_info": {"role": "engineering"},
+                                         "name"  : "cpus",
+                                         "role"  : "*",
+                                         "type"  : "SCALAR",
+                                         "scalar": {"value": 1.0}
+                                       },
+                                       {
+                                         "allocation_info": {"role": "engineering"},
+                                         "name"  : "mem",
+                                         "role"  : "*",
+                                         "type"  : "SCALAR",
+                                         "scalar": {"value": 128.0}
+                                       }
+                                     ]
+                     }
+                   ]
+  }
+}
+```
+
+#### LAUNCH_GROUP
+Sent by the scheduler to atomically launch one or more tasks as a group of nested containers.
+
+```
+{
+  "type"         : "LAUNCH_GROUP",
+  "executor"     : {
+                     "type"        : "DEFAULT",
+                     "executor_id" : "12345-67890-12345-67890"
+  },
+  "launch_group" : {
+    "task_group" : [
+                     {
+                       "name"     : "My Task",
+                       "task_id"  : {"value" : "12220-3440-12532-my-task"},
+                       "agent_id" : {"value" : "12220-3440-12532-S1233"},
+                       "executor" : {
+                                      "command" : {
+                                                    "shell" : true,
+                                                    "value" : "sleep 1000"
+                                                  },
+                                      "executor_id" : {"value" : "12214-23523-my-executor"}
+                                    },
+                       "resources" : [
+                                       {
+                                         "allocation_info": {"role": "engineering"},
+                                         "name"  : "cpus",
+                                         "role"  : "*",
+                                         "type"  : "SCALAR",
+                                         "scalar": {"value": 1.0}
+                                       },
+                                       {
+                                         "allocation_info": {"role": "engineering"},
+                                         "name"  : "mem",
+                                         "role"  : "*",
+                                         "type"  : "SCALAR",
+                                         "scalar": {"value": 128.0}
+                                       }
+                                     ]
+                     }
+                   ]
+  }
+}
+```
+
+#### RESERVE & UNRESERVE
+Sent by the scheduler to reserve and unreserve resources for a role. Reserved resources are only offered to frameworks which registered with the role that the resources are reserved for. For more detailed information on these calls, see the [reservation documentation](reservation.md).
+
+#### CREATE & DESTROY
+Sent by the scheduler to create and destroy persistent volumes. Persistent volumes provide a way for tasks to store data which will persist after the task is gone. For more detailed information on these calls, see the [persistent volume documentation](persistent-volume.md).
 
 ### DECLINE
 Sent by the scheduler to explicitly decline offer(s) received. Note that this is same as sending an `ACCEPT` call with no operations.
@@ -244,12 +340,12 @@ Content-Type: application/json
 Mesos-Stream-Id: 130ae4e3-6b13-4ef4-baa9-9f2e85c3e9af
 
 {
-  "framework_id"	: {"value" : "12220-3440-12532-2345"},
-  "type"			: "DECLINE",
-  "decline"			: {
+  "framework_id" : {"value" : "12220-3440-12532-2345"},
+  "type"			   : "DECLINE",
+  "decline"			 : {
     "offer_ids"	: [
-                   {"value" : "12220-3440-12532-O12"},
-                   {"value" : "12220-3440-12532-O13"}
+                    {"value" : "12220-3440-12532-O12"},
+                    {"value" : "12220-3440-12532-O13"}
                   ],
     "filters"	: {"refuse_seconds" : 5.0}
   }
@@ -297,8 +393,8 @@ Mesos-Stream-Id: 130ae4e3-6b13-4ef4-baa9-9f2e85c3e9af
   "framework_id"	: {"value" : "12220-3440-12532-2345"},
   "type"			: "KILL",
   "kill"			: {
-    "task_id"	:  {"value" : "12220-3440-12532-my-task"},
-    "agent_id"	:  {"value" : "12220-3440-12532-S1233"}
+    "task_id"	 :  {"value" : "12220-3440-12532-my-task"},
+    "agent_id" :  {"value" : "12220-3440-12532-S1233"}
   }
 }
 
@@ -319,9 +415,9 @@ Content-Type: application/json
 Mesos-Stream-Id: 130ae4e3-6b13-4ef4-baa9-9f2e85c3e9af
 
 {
-  "framework_id"	: {"value" : "12220-3440-12532-2345"},
-  "type"			: "SHUTDOWN",
-  "shutdown"		: {
+  "framework_id" : {"value" : "12220-3440-12532-2345"},
+  "type"			   : "SHUTDOWN",
+  "shutdown"		 : {
     "executor_id"	:  {"value" : "123450-2340-1232-my-executor"},
     "agent_id"		:  {"value" : "12220-3440-12532-S1233"}
   }
@@ -344,12 +440,12 @@ Content-Type: application/json
 Mesos-Stream-Id: 130ae4e3-6b13-4ef4-baa9-9f2e85c3e9af
 
 {
-  "framework_id"	: {"value" : "12220-3440-12532-2345"},
-  "type"			: "ACKNOWLEDGE",
-  "acknowledge"		: {
-    "agent_id"	:  {"value" : "12220-3440-12532-S1233"},
-    "task_id"	:  {"value" : "12220-3440-12532-my-task"},
-    "uuid"		:  "jhadf73jhakdlfha723adf"
+  "framework_id" : {"value" : "12220-3440-12532-2345"},
+  "type"			   : "ACKNOWLEDGE",
+  "acknowledge"	 : {
+    "agent_id" :  {"value" : "12220-3440-12532-S1233"},
+    "task_id"	 :  {"value" : "12220-3440-12532-my-task"},
+    "uuid"		 :  "jhadf73jhakdlfha723adf"
   }
 }
 
@@ -370,14 +466,15 @@ Content-Type: application/json
 Mesos-Stream-Id: 130ae4e3-6b13-4ef4-baa9-9f2e85c3e9af
 
 {
-  "framework_id"	: {"value" : "12220-3440-12532-2345"},
-  "type"			: "RECONCILE",
-  "reconcile"		: {
-    "tasks"		: [
-                   { "task_id"  : {"value" : "312325"},
-                     "agent_id" : {"value" : "123535"}
-                   }
-                  ]
+  "framework_id" : {"value" : "12220-3440-12532-2345"},
+  "type"			   : "RECONCILE",
+  "reconcile"		 : {
+    "tasks"	: [
+                {
+                  "task_id"  : {"value" : "312325"},
+                  "agent_id" : {"value" : "123535"}
+                }
+              ]
   }
 }
 
@@ -398,13 +495,13 @@ Content-Type: application/json
 Mesos-Stream-Id: 130ae4e3-6b13-4ef4-baa9-9f2e85c3e9af
 
 {
-  "framework_id"	: {"value" : "12220-3440-12532-2345"},
-  "type"			: "MESSAGE",
-  "message"			: {
-    "agent_id"       : {"value" : "12220-3440-12532-S1233"},
-    "executor_id"    : {"value" : "my-framework-executor"},
-    "data"           : "adaf838jahd748jnaldf"
-  }
+  "framework_id" : {"value" : "12220-3440-12532-2345"},
+  "type"			   : "MESSAGE",
+  "message"			 : {
+                     "agent_id"    : {"value" : "12220-3440-12532-S1233"},
+                     "executor_id" : {"value" : "my-framework-executor"},
+                     "data"        : "adaf838jahd748jnaldf"
+                   }
 }
 
 MESSAGE Response:
