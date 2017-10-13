@@ -483,6 +483,8 @@ public:
 
   void updateSlave(const UpdateSlaveMessage& message);
 
+  void offerOperationUpdate(const OfferOperationStatusUpdate& message);
+
   void updateUnavailability(
       const MachineID& machineId,
       const Option<Unavailability>& unavailability);
@@ -3006,6 +3008,9 @@ struct Framework
   // Offered resources.
   Resources totalOfferedResources;
   hashmap<SlaveID, Resources> offeredResources;
+
+  // Active offer operations.
+  hashmap<UUID, OfferOperation> offerOperations;
 
   // This is only set for HTTP frameworks.
   Option<process::Owned<Heartbeater<scheduler::Event, v1::scheduler::Event>>>

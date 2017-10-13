@@ -660,6 +660,8 @@ private:
   ResourceProviderManager resourceProviderManager;
   process::Owned<LocalResourceProviderDaemon> localResourceProviderDaemon;
 
+  hashmap<UUID, Offer::Operation> offerOperations;
+
 protected:
   // Made protected for testing purposes.
   mesos::SecretGenerator* secretGenerator;

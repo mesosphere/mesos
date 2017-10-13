@@ -5005,10 +5005,20 @@ void Slave::ping(const UPID& from, bool connected)
 
 void Slave::apply(const ApplyOfferOperationMessage& message)
 {
+  Try<UUID> uuid = UUID::fromString(message.operation_uuid());
+
+  if (uuid.isError()) {
+    LOG(WARNING) << "Ignoring operation with invalid offer operation ID: "
+                 << uuid.error();
+    return;
+  }
+
+  offerOperations.put(uuid.get(), message.operation_info());
+
   resourceProviderManager.apply(
       message.framework_id(),
       message.operation_info(),
-      UUID::fromString(message.operation_uuid()).get());
+      uuid.get());
 }
 
 
@@ -6655,6 +6665,71 @@ void Slave::handleResourceProviderMessage(
         }
       }
       break;
+    }
+
+    case ResourceProviderMessage::Type::UPDATE_OFFER_OPERATION_STATUS: {
+      CHECK_SOME(message->updateOfferOperationStatus);
+
+      Try<UUID> uuid =
+        UUID::fromString(message->updateOfferOperationStatus->operationUUID);
+
+      if (uuid.isError()) {
+        LOG(WARNING) << "Ignoring operation update with invalid operation ID: "
+                     << uuid.error();
+        return;
+      }
+
+      Option<Offer::Operation> offerOperation = offerOperations.get(uuid.get());
+
+      if (offerOperation.isNone()) {
+        LOG(WARNING) << "Ignoring operation update with unknown operation ID "
+                     << uuid->toString();
+        return;
+      }
+
+      offerOperations.erase(uuid.get());
+
+      switch (message->updateOfferOperationStatus->status.state()) {
+        case OfferOperationState::OFFER_OPERATION_FINISHED: {
+          totalResources +=
+            message->updateOfferOperationStatus->status.converted_resources();
+          totalResources -=
+            protobuf::getConsumedResources(offerOperation.get());
+
+          break;
+        }
+        case OfferOperationState::OFFER_OPERATION_FAILED: {
+          break;
+        }
+
+        default:
+          LOG(WARNING) << "Unexpected operation state";
+          return;
+      }
+
+      switch (state) {
+        case RECOVERING:
+        case DISCONNECTED:
+        case TERMINATING: {
+          break;
+        }
+        case RUNNING: {
+          LOG(INFO) << "Forwarding operation update";
+
+          OfferOperationStatusUpdate operationStatusUpdate;
+          operationStatusUpdate.mutable_framework_id()->CopyFrom(
+              message->updateOfferOperationStatus->frameworkId);
+          operationStatusUpdate.mutable_slave_id()->CopyFrom(info.id());
+          operationStatusUpdate.mutable_status()->CopyFrom(
+              message->updateOfferOperationStatus->status);
+          operationStatusUpdate.set_operation_uuid(
+              message->updateOfferOperationStatus->operationUUID);
+
+          send(master.get(), operationStatusUpdate);
+
+          break;
+        }
+      }
     }
   }
 

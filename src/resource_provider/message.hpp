@@ -18,6 +18,7 @@
 #define __RESOURCE_PROVIDER_MESSAGE_HPP__
 
 #include <ostream>
+#include <string>
 
 #include <mesos/mesos.hpp>
 #include <mesos/resources.hpp>
@@ -33,7 +34,8 @@ struct ResourceProviderMessage
 {
   enum class Type
   {
-    UPDATE_TOTAL_RESOURCES
+    UPDATE_TOTAL_RESOURCES,
+    UPDATE_OFFER_OPERATION_STATUS
   };
 
   struct UpdateTotalResources {
@@ -41,9 +43,18 @@ struct ResourceProviderMessage
     Resources total;
   };
 
+  struct UpdateOfferOperationStatus {
+    ResourceProviderID id;
+    FrameworkID frameworkId;
+    OfferOperationStatus status;
+    OfferOperationStatus latestStatus;
+    std::string operationUUID;
+  };
+
   Type type;
 
   Option<UpdateTotalResources> updateTotalResources;
+  Option<UpdateOfferOperationStatus> updateOfferOperationStatus;
 };
 
 
@@ -52,7 +63,7 @@ inline std::ostream& operator<<(
     const ResourceProviderMessage& resourceProviderMessage)
 {
   switch (resourceProviderMessage.type) {
-    case ResourceProviderMessage::Type::UPDATE_TOTAL_RESOURCES:
+    case ResourceProviderMessage::Type::UPDATE_TOTAL_RESOURCES: {
       const Option<ResourceProviderMessage::UpdateTotalResources>&
         updateTotalResources = resourceProviderMessage.updateTotalResources;
 
@@ -62,6 +73,10 @@ inline std::ostream& operator<<(
           << "UPDATE_TOTAL_RESOURCES: "
           << updateTotalResources->id << " "
           << updateTotalResources->total;
+    }
+
+    case ResourceProviderMessage::Type::UPDATE_OFFER_OPERATION_STATUS:
+      return stream;
   }
 
   UNREACHABLE();

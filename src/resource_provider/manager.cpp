@@ -266,7 +266,8 @@ Future<http::Response> ResourceProviderManagerProcess::api(
     return BadRequest("Resource provider cannot be found");
   }
 
-  auto resourceProvider = resourceProviders.at(call.resource_provider_id());
+  ResourceProvider& resourceProvider =
+    resourceProviders.at(call.resource_provider_id());
 
   // This isn't a `SUBSCRIBE` call, so the request should include a stream ID.
   if (!request.headers.contains("Mesos-Stream-Id")) {
@@ -399,7 +400,19 @@ void ResourceProviderManagerProcess::updateOperationStatus(
     ResourceProvider* resourceProvider,
     const Call::UpdateOperationStatus& update)
 {
-  // TODO(nfnt): Implement the 'UPDATE_OPERATION_STATUS' call handler.
+  ResourceProviderMessage message;
+  message.type = ResourceProviderMessage::Type::UPDATE_OFFER_OPERATION_STATUS;
+
+  ResourceProviderMessage::UpdateOfferOperationStatus
+    updateOfferOperationStatus;
+  updateOfferOperationStatus.id = resourceProvider->info.id();
+  updateOfferOperationStatus.frameworkId = update.framework_id();
+  updateOfferOperationStatus.status = update.status();
+  updateOfferOperationStatus.latestStatus = update.latest_status();
+  updateOfferOperationStatus.operationUUID = update.operation_uuid();
+
+  message.updateOfferOperationStatus = std::move(updateOfferOperationStatus);
+  messages.put(std::move(message));
 }
 
 

@@ -886,6 +886,8 @@ void Master::initialize()
 
   install<UpdateSlaveMessage>(&Master::updateSlave);
 
+  install<OfferOperationStatusUpdate>(&Master::offerOperationUpdate);
+
   install<AuthenticateMessage>(
       &Master::authenticate,
       &AuthenticateMessage::pid);
@@ -5123,6 +5125,8 @@ void Master::_accept(
         offerOperation.mutable_info()->CopyFrom(operation);
         offerOperation.set_operation_uuid(uuid.toString());
 
+        framework->offerOperations.put(uuid, offerOperation);
+
         ApplyOfferOperationMessage message;
         message.mutable_framework_id()->CopyFrom(frameworkId);
         message.mutable_operation_info()->CopyFrom(operation);
@@ -5166,6 +5170,8 @@ void Master::_accept(
         offerOperation.mutable_framework_id()->CopyFrom(frameworkId);
         offerOperation.mutable_info()->CopyFrom(operation);
         offerOperation.set_operation_uuid(uuid.toString());
+
+        framework->offerOperations.put(uuid, offerOperation);
 
         ApplyOfferOperationMessage message;
         message.mutable_framework_id()->CopyFrom(frameworkId);
@@ -5211,6 +5217,8 @@ void Master::_accept(
         offerOperation.mutable_info()->CopyFrom(operation);
         offerOperation.set_operation_uuid(uuid.toString());
 
+        framework->offerOperations.put(uuid, offerOperation);
+
         ApplyOfferOperationMessage message;
         message.mutable_framework_id()->CopyFrom(frameworkId);
         message.mutable_operation_info()->CopyFrom(operation);
@@ -5254,6 +5262,8 @@ void Master::_accept(
         offerOperation.mutable_framework_id()->CopyFrom(frameworkId);
         offerOperation.mutable_info()->CopyFrom(operation);
         offerOperation.set_operation_uuid(uuid.toString());
+
+        framework->offerOperations.put(uuid, offerOperation);
 
         ApplyOfferOperationMessage message;
         message.mutable_framework_id()->CopyFrom(frameworkId);
@@ -7035,6 +7045,105 @@ void Master::updateSlave(const UpdateSlaveMessage& message)
 
   // NOTE: We don't need to rescind inverse offers here as they are unrelated to
   // oversubscription.
+}
+
+
+void Master::offerOperationUpdate(const OfferOperationStatusUpdate& message)
+{
+  ++metrics->messages_offer_operation_update;
+
+  const SlaveID& slaveId = message.slave_id();
+
+  if (slaves.removed.get(slaveId).isSome()) {
+    // If the slave has been removed, drop the status update. The
+    // master is no longer trying to health check this slave; when the
+    // slave realizes it hasn't received any pings from the master, it
+    // will eventually try to reregister.
+    LOG(WARNING) << "Ignoring update on removed agent " << slaveId;
+    return;
+  }
+
+  Slave* slave = slaves.registered.get(slaveId);
+
+  if (slave == nullptr) {
+    LOG(WARNING) << "Ignoring update on removed agent " << slaveId;
+    return;
+  }
+
+  const FrameworkID& frameworkId = message.framework_id();
+
+  Framework* framework = getFramework(frameworkId);
+  if (framework == nullptr || !framework->connected()) {
+    string status = (framework == nullptr ? "unknown" : "disconnected");
+
+    LOG(WARNING)
+      << "Ignoring update of framework " << frameworkId
+      << " because the framework is " << status;
+    return;
+  }
+
+  Try<UUID> uuid = UUID::fromString(message.operation_uuid());
+
+  if (uuid.isError()) {
+    LOG(WARNING) << "Ignoring update with invalid offer operation ID: "
+                 << uuid.error();
+    return;
+  }
+
+  Option<OfferOperation> offerOperation =
+    framework->offerOperations.get(uuid.get());
+
+  if (offerOperation.isNone()) {
+    LOG(WARNING) << "Ignoring update with unknown offer operation ID "
+                 << uuid->toString();
+    return;
+  }
+
+  framework->offerOperations.erase(uuid.get());
+
+  switch (message.status().state()) {
+    case OfferOperationState::OFFER_OPERATION_FINISHED: {
+      Resources convertedResources = message.status().converted_resources();
+      convertedResources.unallocate();
+
+      const Resources& sourceResources =
+        protobuf::getConsumedResources(offerOperation->info());
+
+      Resources unallocated = sourceResources;
+      unallocated.unallocate();
+
+      slave->totalResources += convertedResources;
+      slave->totalResources -= unallocated;
+
+      // Now update the agent's resources in the allocator.
+      allocator->updateSlave(slaveId, slave->totalResources);
+
+      allocator->recoverResources(
+          frameworkId,
+          slaveId,
+          sourceResources,
+          None());
+
+      break;
+    }
+
+    case OfferOperationState::OFFER_OPERATION_FAILED: {
+      const Resources& sourceResources =
+        protobuf::getConsumedResources(offerOperation->info());
+
+      allocator->recoverResources(
+          frameworkId,
+          slaveId,
+          sourceResources,
+          None());
+
+      break;
+    }
+
+    default: {
+      LOG(WARNING) << "Unexpected operation state";
+    }
+  }
 }
 
 
