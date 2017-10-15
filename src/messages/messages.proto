@@ -629,6 +629,50 @@ message UpdateSlaveMessage {
 
   repeated Resource oversubscribed_resources = 2;
   repeated Resource total_resources = 4;
+
+  message OfferOperations {
+    repeated OfferOperation operations = 1;
+  }
+
+  // Pending operations or terminal operations that have
+  // unacknowledged status update, which are known to this agent.
+  optional OfferOperations offer_operations = 6;
+}
+
+
+/**
+ * This message is sent from the agent to the master to update the
+ * status of an offer operation.
+ *
+ * See resource_provider::Call::UPDATE_OPERATION_STATUS.
+ */
+message OfferOperationStatusUpdate {
+  required FrameworkID framework_id = 1;
+  required SlaveID slave_id = 2;
+  required OfferOperationStatus status = 3;
+  optional OfferOperationStatus latest_status = 4;
+
+  // This is the internal UUID for the operation, which is kept
+  // independently from the framework specified operation id, which is
+  // optional.
+  required bytes operation_uuid = 5;
+}
+
+
+/**
+ * This message is sent from the master to the agent to apply an offer
+ * operation.
+ *
+ * See resource_provider::Event::OPERATION.
+ */
+message ApplyOfferOperationMessage {
+  required FrameworkID framework_id = 1;
+  required Offer.Operation operation_info = 2;
+
+  // This is the internal UUID for the operation, which is kept
+  // independently from the framework specified operation id, which is
+  // optional.
+  required bytes operation_uuid = 3;
 }
 
 
