@@ -36,7 +36,9 @@ struct LocalResourceProviderCallbacks
 {
   const lambda::function<Try<Owned<LocalResourceProvider>>(
       const http::URL&,
+      const string&,
       const ResourceProviderInfo&,
+      const SlaveID&,
       const Option<string>&)> create;
   const lambda::function<Try<Principal>(const ResourceProviderInfo&)> principal;
 };
@@ -57,11 +59,14 @@ static const hashmap<string, LocalResourceProviderCallbacks> providers = {
 
 Try<Owned<LocalResourceProvider>> LocalResourceProvider::create(
     const http::URL& url,
+    const string& workDir,
     const ResourceProviderInfo& info,
+    const SlaveID& slaveId,
     const Option<string>& authToken)
 {
   if (providers.contains(info.type())) {
-    return providers.at(info.type()).create(url, info, authToken);
+    return providers.at(info.type()).create(
+        url, workDir, info, slaveId, authToken);
   }
 
   return Error("Unknown local resource provider type '" + info.type() + "'");

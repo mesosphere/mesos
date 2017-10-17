@@ -166,7 +166,7 @@ Future<Nothing> LocalResourceProviderDaemonProcess::load(const string& path)
   return generateAuthToken(info.get())
     .then(defer(self(), [=](const Option<string>& token) -> Future<Nothing> {
       Try<Owned<LocalResourceProvider>> provider =
-        LocalResourceProvider::create(url, info.get(), token);
+        LocalResourceProvider::create(url, workDir, info.get(), slaveId, token);
 
       if (provider.isError()) {
         return Failure(

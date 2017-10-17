@@ -47,6 +47,9 @@ namespace paths {
 //
 //   (5) For provisioning root filesystems for containers.
 //
+//   (6) For resource provider agents to preserve data that persist
+//       across slaves.
+//
 // The file system layout is as follows:
 //
 //   root ('--work_dir' flag)
@@ -71,6 +74,12 @@ namespace paths {
 //   |       |-- latest (symlink)
 //   |       |-- <slave_id>
 //   |           |-- slave.info
+//   |           |-- resource_providers
+//   |           |   |-- <type>
+//   |           |       |-- <name>
+//   |           |           |-- latest (symlink)
+//   |           |           |-- <resource_provider_id>
+//   |           |               |-- state
 //   |           |-- frameworks
 //   |               |-- <framework_id>
 //   |                   |-- framework.info
@@ -94,6 +103,9 @@ namespace paths {
 //   |       |-- <role>
 //   |           |-- <persistence_id> (persistent volume)
 //   |-- provisioner
+//   |-- resource_providers
+//       |-- <type>
+//           |-- <name> (root dir for resource provider agent)
 
 
 struct ExecutorRunPath
@@ -112,7 +124,16 @@ Try<ExecutorRunPath> parseExecutorRunPath(
 
 const char LATEST_SYMLINK[] = "latest";
 
-// Helpers for obtaining paths in the layout:
+// Helpers for obtaining paths in the layout.
+// NOTE: The parameter names should adhere to the following convention:
+//
+//   (1) Use `workDir` if the helper expects the `--work_dir` flag.
+//
+//   (2) Use `metaDir` if the helper expects the meta directory.
+//
+//   (3) Use `rootDir` only if the helper is to be reused.
+//
+// TODO(chhsiao): Clean up the parameter names to follow the convention.
 
 std::string getMetaRootDir(const std::string& rootDir);
 
@@ -300,6 +321,40 @@ std::string getResourceProviderRegistryPath(
     const SlaveID& slaveId);
 
 
+Try<std::list<std::string>> getResourceProviderPaths(
+    const std::string& metaDir,
+    const SlaveID& slaveId);
+
+
+std::string getResourceProviderPath(
+    const std::string& metaDir,
+    const SlaveID& slaveId,
+    const std::string& resourceProviderType,
+    const std::string& resourceProviderName,
+    const ResourceProviderID& resourceProviderId);
+
+
+std::string getResourceProviderStatePath(
+    const std::string& metaDir,
+    const SlaveID& slaveId,
+    const std::string& resourceProviderType,
+    const std::string& resourceProviderName,
+    const ResourceProviderID& resourceProviderId);
+
+
+std::string getLatestResourceProviderPath(
+    const std::string& metaDir,
+    const SlaveID& slaveId,
+    const std::string& resourceProviderType,
+    const std::string& resourceProviderName);
+
+
+std::string getResourceProviderAgentRootDir(
+    const std::string& workDir,
+    const std::string& resourceProviderType,
+    const std::string& resourceProviderName);
+
+
 std::string getResourcesInfoPath(
     const std::string& rootDir);
 
@@ -331,6 +386,14 @@ std::string createExecutorDirectory(
 std::string createSlaveDirectory(
     const std::string& rootDir,
     const SlaveID& slaveId);
+
+
+std::string createResourceProviderDirectory(
+    const std::string& rootDir,
+    const SlaveID& slaveId,
+    const std::string& resourceProviderType,
+    const std::string& resourceProviderName,
+    const ResourceProviderID& resourceProviderId);
 
 
 extern const char LIBPROCESS_PID_FILE[];
