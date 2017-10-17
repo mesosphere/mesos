@@ -33,6 +33,7 @@ class LocalResourceProvider
 public:
   static Try<process::Owned<LocalResourceProvider>> create(
       const process::http::URL& url,
+      const std::string& workDir,
       const mesos::ResourceProviderInfo& info,
       const Option<std::string>& authToken);
 

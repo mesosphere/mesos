@@ -52,6 +52,11 @@ namespace paths {
 //   root ('--work_dir' flag)
 //   |-- containers
 //   |   |-- <container_id> (sandbox)
+//   |-- resource_providers
+//   |   |-- <type>
+//   |       |-- <name>
+//   |           |-- latest (symlink)
+//   |           |-- <resource_provider_id> (for data not bound to slave_id)
 //   |-- slaves
 //   |   |-- latest (symlink)
 //   |   |-- <slave_id>
@@ -71,6 +76,12 @@ namespace paths {
 //   |       |-- latest (symlink)
 //   |       |-- <slave_id>
 //   |           |-- slave.info
+//   |           |-- resource_providers
+//   |           |   |-- <type>
+//   |           |       |-- <name>
+//   |           |           |-- latest (symlink)
+//   |           |           |-- <resource_provider_id>
+//   |           |               |-- state
 //   |           |-- frameworks
 //   |               |-- <framework_id>
 //   |                   |-- framework.info
@@ -146,6 +157,20 @@ Try<std::list<std::string>> getContainerPaths(
 std::string getContainerPath(
     const std::string& rootDir,
     const ContainerID& containerId);
+
+
+Try<std::list<std::string>> getResourceProviderPaths(
+    const std::string& rootDir);
+
+
+std::string getResourceProviderPath(
+    const std::string& rootDir,
+    const ResourceProviderInfo& resourceProviderInfo);
+
+
+std::string getLatestResourceProviderPath(
+    const std::string& rootDir,
+    const ResourceProviderInfo& resourceProviderInfo);
 
 
 Try<std::list<std::string>> getFrameworkPaths(
@@ -317,6 +342,11 @@ std::string getPersistentVolumePath(
 std::string getPersistentVolumePath(
     const std::string& rootDir,
     const Resource& resource);
+
+
+std::string createResourceProviderDirectory(
+    const std::string& rootDir,
+    const ResourceProviderInfo& resourceProviderInfo);
 
 
 std::string createExecutorDirectory(

@@ -67,6 +67,7 @@ const char RESOURCES_TARGET_FILE[] = "resources.target";
 
 
 const char CONTAINERS_DIR[] = "containers";
+const char RESOURCE_PROVIDERS_DIR[] = "resource_providers";
 const char SLAVES_DIR[] = "slaves";
 const char FRAMEWORKS_DIR[] = "frameworks";
 const char EXECUTORS_DIR[] = "executors";
@@ -170,6 +171,41 @@ string getContainerPath(
     const ContainerID& containerId)
 {
   return path::join(rootDir, CONTAINERS_DIR, stringify(containerId));
+}
+
+
+Try<list<string>> getResourceProviderPaths(
+    const std::string& rootDir)
+{
+  return fs::list(path::join(rootDir, RESOURCE_PROVIDERS_DIR, "*", "*", "*"));
+}
+
+
+string getResourceProviderPath(
+    const std::string& rootDir,
+    const ResourceProviderInfo& resourceProviderInfo)
+{
+  CHECK(resourceProviderInfo.has_id());
+
+  return path::join(
+      rootDir,
+      RESOURCE_PROVIDERS_DIR,
+      resourceProviderInfo.type(),
+      resourceProviderInfo.name(),
+      stringify(resourceProviderInfo.id()));
+}
+
+
+string getLatestResourceProviderPath(
+    const std::string& rootDir,
+    const ResourceProviderInfo& resourceProviderInfo)
+{
+  return path::join(
+      rootDir,
+      RESOURCE_PROVIDERS_DIR,
+      resourceProviderInfo.type(),
+      resourceProviderInfo.name(),
+      LATEST_SYMLINK);
 }
 
 
@@ -566,6 +602,40 @@ string getPersistentVolumePath(
   }
 
   UNREACHABLE();
+}
+
+
+string createResourceProviderDirectory(
+    const string& rootDir,
+    const ResourceProviderInfo& resourceProviderInfo)
+{
+  CHECK(resourceProviderInfo.has_id());
+
+  const string directory =
+    getResourceProviderPath(rootDir, resourceProviderInfo);
+
+  Try<Nothing> mkdir = os::mkdir(directory);
+
+  CHECK_SOME(mkdir)
+    << "Failed to create resource provider directory '" << directory << "'";
+
+  // Remove the previous "latest" symlink.
+  const string latest =
+    getLatestResourceProviderPath(rootDir, resourceProviderInfo);
+
+  if (os::exists(latest)) {
+    CHECK_SOME(os::rm(latest))
+      << "Failed to remove latest symlink '" << latest << "'";
+  }
+
+  // Symlink the new resource provider directory to "latest".
+  Try<Nothing> symlink = ::fs::symlink(directory, latest);
+
+  CHECK_SOME(symlink)
+    << "Failed to symlink directory '" << directory
+    << "' to '" << latest << "'";
+
+  return directory;
 }
 
 

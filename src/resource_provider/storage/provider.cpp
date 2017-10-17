@@ -76,11 +76,13 @@ class StorageLocalResourceProviderProcess
 {
 public:
   explicit StorageLocalResourceProviderProcess(
-      const process::http::URL& _url,
+      const http::URL& _url,
+      const string& _workDir,
       const ResourceProviderInfo& _info,
       const Option<string>& _authToken)
     : ProcessBase(process::ID::generate("storage-local-resource-provider")),
       url(_url),
+      workDir(_workDir),
       contentType(ContentType::PROTOBUF),
       info(_info),
       authToken(_authToken) {}
@@ -98,7 +100,8 @@ public:
 private:
   void initialize() override;
 
-  const process::http::URL url;
+  const http::URL url;
+  const string workDir;
   const ContentType contentType;
   ResourceProviderInfo info;
   Owned<v1::resource_provider::Driver> driver;
@@ -164,12 +167,13 @@ void StorageLocalResourceProviderProcess::initialize()
 
 
 Try<Owned<LocalResourceProvider>> StorageLocalResourceProvider::create(
-    const process::http::URL& url,
+    const http::URL& url,
+    const string& workDir,
     const ResourceProviderInfo& info,
     const Option<string>& authToken)
 {
   return Owned<LocalResourceProvider>(
-      new StorageLocalResourceProvider(url, info, authToken));
+      new StorageLocalResourceProvider(url, workDir, info, authToken));
 }
 
 
@@ -181,10 +185,12 @@ Try<Principal> StorageLocalResourceProvider::principal(
 
 
 StorageLocalResourceProvider::StorageLocalResourceProvider(
-    const process::http::URL& url,
+    const http::URL& url,
+    const string& workDir,
     const ResourceProviderInfo& info,
     const Option<string>& authToken)
-  : process(new StorageLocalResourceProviderProcess(url, info, authToken))
+  : process(new StorageLocalResourceProviderProcess(
+        url, workDir, info, authToken))
 {
   spawn(CHECK_NOTNULL(process.get()));
 }
