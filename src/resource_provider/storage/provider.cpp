@@ -31,6 +31,7 @@
 #include "resource_provider/detector.hpp"
 
 using std::queue;
+using std::string;
 
 using process::Owned;
 using process::Process;
@@ -55,11 +56,13 @@ class StorageLocalResourceProviderProcess
 public:
   explicit StorageLocalResourceProviderProcess(
       const process::http::URL& _url,
-      const ResourceProviderInfo& _info)
+      const ResourceProviderInfo& _info,
+      const Option<string>& _authToken)
     : ProcessBase(process::ID::generate("storage-local-resource-provider")),
       url(_url),
       contentType(ContentType::PROTOBUF),
-      info(_info) {}
+      info(_info),
+      authToken(_authToken) {}
 
   StorageLocalResourceProviderProcess(
       const StorageLocalResourceProviderProcess& other) = delete;
@@ -78,6 +81,7 @@ private:
   const ContentType contentType;
   ResourceProviderInfo info;
   Owned<v1::resource_provider::Driver> driver;
+  Option<string> authToken;
 };
 
 
@@ -140,17 +144,19 @@ void StorageLocalResourceProviderProcess::initialize()
 
 Try<Owned<LocalResourceProvider>> StorageLocalResourceProvider::create(
     const process::http::URL& url,
-    const ResourceProviderInfo& info)
+    const ResourceProviderInfo& info,
+    const Option<string>& authToken)
 {
   return Owned<LocalResourceProvider>(
-      new StorageLocalResourceProvider(url, info));
+      new StorageLocalResourceProvider(url, info, authToken));
 }
 
 
 StorageLocalResourceProvider::StorageLocalResourceProvider(
     const process::http::URL& url,
-    const ResourceProviderInfo& info)
-  : process(new StorageLocalResourceProviderProcess(url, info))
+    const ResourceProviderInfo& info,
+    const Option<string>& authToken)
+  : process(new StorageLocalResourceProviderProcess(url, info, authToken))
 {
   spawn(CHECK_NOTNULL(process.get()));
 }

@@ -38,7 +38,8 @@ class StorageLocalResourceProvider : public LocalResourceProvider
 public:
   static Try<process::Owned<LocalResourceProvider>> create(
       const process::http::URL& url,
-      const mesos::ResourceProviderInfo& info);
+      const mesos::ResourceProviderInfo& info,
+      const Option<std::string>& authToken);
 
   ~StorageLocalResourceProvider() override;
 
@@ -51,7 +52,8 @@ public:
 private:
   explicit StorageLocalResourceProvider(
       const process::http::URL& url,
-      const mesos::ResourceProviderInfo& info);
+      const mesos::ResourceProviderInfo& info,
+      const Option<std::string>& authToken);
 
   process::Owned<StorageLocalResourceProviderProcess> process;
 };

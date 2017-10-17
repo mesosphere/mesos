@@ -32,7 +32,8 @@ class LocalResourceProvider
 public:
   static Try<process::Owned<LocalResourceProvider>> create(
       const process::http::URL& url,
-      const ResourceProviderInfo& info);
+      const ResourceProviderInfo& info,
+      const Option<std::string>& authToken);
 
   virtual ~LocalResourceProvider() = default;
 };

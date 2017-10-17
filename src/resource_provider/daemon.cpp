@@ -146,12 +146,12 @@ Try<Nothing> LocalResourceProviderDaemonProcess::load(const string& path)
   }
 
   Try<Owned<LocalResourceProvider>> provider =
-    LocalResourceProvider::create(url, info.get());
+    LocalResourceProvider::create(url, info.get(), Option<string>::none());
 
   if (provider.isError()) {
     return Error(
         "Failed to create resource provider with type '" + info->type() +
-        "' and name '" + info->name() + "'");
+        "' and name '" + info->name() + "': " + provider.error());
   }
 
   providers.emplace_back(info.get(), provider.get());
