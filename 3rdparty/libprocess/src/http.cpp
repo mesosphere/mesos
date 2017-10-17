@@ -740,7 +740,7 @@ Try<hashmap<string, string>> parse(const string& pattern, const string& path)
 } // namespace path {
 
 
-string encode(const string& s)
+string encode(const string& s, const string& unsafe)
 {
   ostringstream out;
 
@@ -780,7 +780,7 @@ string encode(const string& s)
       default:
         // ASCII control characters and non-ASCII characters.
         // NOTE: The cast to unsigned int is needed.
-        if (c < 0x20 || c > 0x7F) {
+        if (c < 0x20 || c > 0x7F || unsafe.find_first_of(c) != string::npos) {
           out << '%' << std::setfill('0') << std::setw(2) << std::hex
               << std::uppercase << (unsigned int) c;
         } else {
