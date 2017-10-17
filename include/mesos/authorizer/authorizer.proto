@@ -217,6 +217,19 @@ enum Action {
   // This action will not fill in any object fields, since a principal is
   // either allowed to mark an agent as gone or is unauthorized.
   MARK_AGENT_GONE = 34;
+
+  // This action will set objects of type `ContainerID`
+  // and optionally a `CommandInfo` if available.
+  LAUNCH_STANDALONE_CONTAINER = 35;
+
+  // This action will set objects of type `ContainerID`.
+  KILL_STANDALONE_CONTAINER = 36;
+
+  // This action will set objects of type `ContainerID`.
+  WAIT_STANDALONE_CONTAINER = 37;
+
+  // This action will set objects of type `ContainerID`.
+  REMOVE_STANDALONE_CONTAINER = 38;
 }
 
 

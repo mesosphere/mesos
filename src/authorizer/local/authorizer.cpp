@@ -396,6 +396,30 @@ public:
           }
 
           break;
+        case authorization::LAUNCH_STANDALONE_CONTAINER:
+          aclObject.set_type(mesos::ACL::Entity::ANY);
+
+          if (object->command_info != nullptr &&
+              object->command_info->has_user()) {
+            aclObject.add_values(object->command_info->user());
+            aclObject.set_type(mesos::ACL::Entity::SOME);
+          } else if (object->value != nullptr) {
+            aclObject.add_values(*(object->value));
+            aclObject.set_type(mesos::ACL::Entity::SOME);
+          }
+
+          break;
+        case authorization::KILL_STANDALONE_CONTAINER:
+        case authorization::WAIT_STANDALONE_CONTAINER:
+        case authorization::REMOVE_STANDALONE_CONTAINER:
+          aclObject.set_type(mesos::ACL::Entity::ANY);
+
+          if (object->container_id != nullptr) {
+            aclObject.add_values(object->container_id->value());
+            aclObject.set_type(mesos::ACL::Entity::SOME);
+          }
+
+          break;
         case authorization::GET_MAINTENANCE_SCHEDULE:
         case authorization::GET_MAINTENANCE_STATUS:
         case authorization::MARK_AGENT_GONE:
@@ -665,11 +689,14 @@ public:
         case authorization::GET_MAINTENANCE_SCHEDULE:
         case authorization::GET_MAINTENANCE_STATUS:
         case authorization::KILL_NESTED_CONTAINER:
+        case authorization::KILL_STANDALONE_CONTAINER:
         case authorization::LAUNCH_NESTED_CONTAINER:
         case authorization::LAUNCH_NESTED_CONTAINER_SESSION:
+        case authorization::LAUNCH_STANDALONE_CONTAINER:
         case authorization::MARK_AGENT_GONE:
         case authorization::REGISTER_AGENT:
         case authorization::REMOVE_NESTED_CONTAINER:
+        case authorization::REMOVE_STANDALONE_CONTAINER:
         case authorization::RUN_TASK:
         case authorization::SET_LOG_LEVEL:
         case authorization::START_MAINTENANCE:
@@ -683,6 +710,7 @@ public:
         case authorization::VIEW_FRAMEWORK:
         case authorization::VIEW_TASK:
         case authorization::WAIT_NESTED_CONTAINER:
+        case authorization::WAIT_STANDALONE_CONTAINER:
         case authorization::UNKNOWN:
           UNREACHABLE();
       }
@@ -876,11 +904,14 @@ public:
       case authorization::GET_MAINTENANCE_SCHEDULE:
       case authorization::GET_MAINTENANCE_STATUS:
       case authorization::KILL_NESTED_CONTAINER:
+      case authorization::KILL_STANDALONE_CONTAINER:
       case authorization::LAUNCH_NESTED_CONTAINER:
       case authorization::LAUNCH_NESTED_CONTAINER_SESSION:
+      case authorization::LAUNCH_STANDALONE_CONTAINER:
       case authorization::MARK_AGENT_GONE:
       case authorization::REGISTER_AGENT:
       case authorization::REMOVE_NESTED_CONTAINER:
+      case authorization::REMOVE_STANDALONE_CONTAINER:
       case authorization::RUN_TASK:
       case authorization::SET_LOG_LEVEL:
       case authorization::START_MAINTENANCE:
@@ -895,6 +926,7 @@ public:
       case authorization::VIEW_FRAMEWORK:
       case authorization::VIEW_TASK:
       case authorization::WAIT_NESTED_CONTAINER:
+      case authorization::WAIT_STANDALONE_CONTAINER:
         UNREACHABLE();
     }
 
@@ -1043,9 +1075,12 @@ public:
       case authorization::GET_MAINTENANCE_SCHEDULE:
       case authorization::GET_MAINTENANCE_STATUS:
       case authorization::KILL_NESTED_CONTAINER:
+      case authorization::KILL_STANDALONE_CONTAINER:
+      case authorization::LAUNCH_STANDALONE_CONTAINER:
       case authorization::MARK_AGENT_GONE:
       case authorization::REGISTER_AGENT:
       case authorization::REMOVE_NESTED_CONTAINER:
+      case authorization::REMOVE_STANDALONE_CONTAINER:
       case authorization::RUN_TASK:
       case authorization::SET_LOG_LEVEL:
       case authorization::START_MAINTENANCE:
@@ -1059,6 +1094,7 @@ public:
       case authorization::VIEW_FRAMEWORK:
       case authorization::VIEW_TASK:
       case authorization::WAIT_NESTED_CONTAINER:
+      case authorization::WAIT_STANDALONE_CONTAINER:
       case authorization::UNKNOWN: {
         Result<vector<GenericACL>> genericACLs =
           createGenericACLs(action, acls);
@@ -1343,6 +1379,50 @@ private:
           GenericACL acl_;
           acl_.subjects = acl.principals();
           acl_.objects = acl.agents();
+
+          acls_.push_back(acl_);
+        }
+
+        return acls_;
+      case authorization::LAUNCH_STANDALONE_CONTAINER:
+        foreach (const ACL::LaunchStandaloneContainerAsUser& acl,
+                 acls.launch_standalone_container_as_user()) {
+          GenericACL acl_;
+          acl_.subjects = acl.principals();
+          acl_.objects = acl.users();
+
+          acls_.push_back(acl_);
+        }
+
+        return acls_;
+      case authorization::KILL_STANDALONE_CONTAINER:
+        foreach (const ACL::KillStandaloneContainer& acl,
+            acls.kill_standalone_containers()) {
+          GenericACL acl_;
+          acl_.subjects = acl.principals();
+          acl_.objects = acl.users();
+
+          acls_.push_back(acl_);
+        }
+
+        return acls_;
+      case authorization::WAIT_STANDALONE_CONTAINER:
+        foreach (const ACL::WaitStandaloneContainer& acl,
+            acls.wait_standalone_containers()) {
+          GenericACL acl_;
+          acl_.subjects = acl.principals();
+          acl_.objects = acl.users();
+
+          acls_.push_back(acl_);
+        }
+
+        return acls_;
+      case authorization::REMOVE_STANDALONE_CONTAINER:
+        foreach (const ACL::RemoveStandaloneContainer& acl,
+            acls.remove_standalone_containers()) {
+          GenericACL acl_;
+          acl_.subjects = acl.principals();
+          acl_.objects = acl.users();
 
           acls_.push_back(acl_);
         }
