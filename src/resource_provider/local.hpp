@@ -17,6 +17,7 @@
 #ifndef __RESOURCE_PROVIDER_LOCAL_HPP__
 #define __RESOURCE_PROVIDER_LOCAL_HPP__
 
+#include <process/authenticator.hpp>
 #include <process/http.hpp>
 #include <process/owned.hpp>
 
@@ -34,6 +35,9 @@ public:
       const process::http::URL& url,
       const ResourceProviderInfo& info,
       const Option<std::string>& authToken);
+
+  static Try<process::http::authentication::Principal> principal(
+      const ResourceProviderInfo& info);
 
   virtual ~LocalResourceProvider() = default;
 };

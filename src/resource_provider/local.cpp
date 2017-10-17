@@ -14,37 +14,68 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stout/hashmap.hpp>
+#include <stout/lambda.hpp>
+
 #include "resource_provider/local.hpp"
 
 #include "resource_provider/storage/provider.hpp"
+
+namespace http = process::http;
 
 using std::string;
 
 using process::Owned;
 
+using process::http::authentication::Principal;
+
 namespace mesos {
 namespace internal {
 
+struct LocalResourceProviderCallbacks
+{
+  const lambda::function<Try<Owned<LocalResourceProvider>>(
+      const http::URL&,
+      const ResourceProviderInfo&,
+      const Option<string>&)> create;
+  const lambda::function<Try<Principal>(const ResourceProviderInfo&)> principal;
+};
+
+
+// TODO(jieyu): Document the built-in local resource providers.
+static const hashmap<string, LocalResourceProviderCallbacks> providers = {
+#ifdef ENABLE_GRPC
+#ifdef __linux__
+  {"org.apache.mesos.rp.local.storage", {
+    &StorageLocalResourceProvider::create,
+    &StorageLocalResourceProvider::principal
+  }}
+#endif // __linux__
+#endif // ENABLE_GRPC
+};
+
+
 Try<Owned<LocalResourceProvider>> LocalResourceProvider::create(
-    const process::http::URL& url,
+    const http::URL& url,
     const ResourceProviderInfo& info,
     const Option<string>& authToken)
 {
-  // TODO(jieyu): Document the built-in local resource providers.
-  if (info.type() == "org.apache.mesos.rp.local.storage") {
-    Try<Owned<LocalResourceProvider>> provider =
-      StorageLocalResourceProvider::create(url, info, authToken);
-
-    if (provider.isError()) {
-      return Error(
-          "Failed to create storage local resource provider: " +
-          provider.error());
-    }
-
-    return provider.get();
+  if (providers.contains(info.type())) {
+    return providers.at(info.type()).create(url, info, authToken);
   }
 
-  return Error("Unknown resource provider type '" + info.type() + "'");
+  return Error("Unknown local resource provider type '" + info.type() + "'");
+}
+
+
+Try<Principal> LocalResourceProvider::principal(
+    const ResourceProviderInfo& info)
+{
+  if (providers.contains(info.type())) {
+    return providers.at(info.type()).principal(info);
+  }
+
+  return Error("Unknown local resource provider type '" + info.type() + "'");
 }
 
 } // namespace internal {

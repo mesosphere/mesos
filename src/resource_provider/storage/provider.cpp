@@ -30,6 +30,8 @@
 
 #include "resource_provider/detector.hpp"
 
+namespace http = process::http;
+
 using std::queue;
 using std::string;
 
@@ -41,6 +43,8 @@ using process::spawn;
 using process::terminate;
 using process::wait;
 
+using process::http::authentication::Principal;
+
 using mesos::ResourceProviderInfo;
 
 using mesos::resource_provider::Event;
@@ -49,6 +53,22 @@ using mesos::v1::resource_provider::Driver;
 
 namespace mesos {
 namespace internal {
+
+static const string SLRP_NAME_PREFIX = "mesos-slrp-";
+
+// We use percent-encoding to escape '.' (reserved for standalone
+// containers) and '-' (reserved as a separator) for names, in addition
+// to the characters reserved in RFC 3986.
+static const string SLRP_NAME_RESERVED = ".-";
+
+
+// Returns a prefix for naming components of the resource provider. This
+// can be used in various places, such as container IDs for CSI plugins.
+static inline string getPrefix(const ResourceProviderInfo& info)
+{
+  return SLRP_NAME_PREFIX + http::encode(info.name(), SLRP_NAME_RESERVED) + "-";
+}
+
 
 class StorageLocalResourceProviderProcess
   : public Process<StorageLocalResourceProviderProcess>
@@ -149,6 +169,13 @@ Try<Owned<LocalResourceProvider>> StorageLocalResourceProvider::create(
 {
   return Owned<LocalResourceProvider>(
       new StorageLocalResourceProvider(url, info, authToken));
+}
+
+
+Try<Principal> StorageLocalResourceProvider::principal(
+    const ResourceProviderInfo& info)
+{
+  return Principal(Option<string>::none(), {{"cid_prefix", getPrefix(info)}});
 }
 
 
