@@ -30,19 +30,30 @@ using grpc::ServerContext;
 using grpc::Status;
 
 using testing::_;
+using testing::DoAll;
+using testing::Invoke;
 using testing::Return;
 
 namespace mesos {
 namespace internal {
 namespace tests {
 
-#define DECLARE_MOCK_CSI_METHOD_IMPL(name) \
-  EXPECT_CALL(*this, name(_, _, _))        \
-    .WillRepeatedly(Return(Status::OK));
-
 MockCSIPlugin::MockCSIPlugin()
 {
+#define DECLARE_MOCK_CSI_METHOD_IMPL(name)      \
+  EXPECT_CALL(*this, name(_, _, _))             \
+    .WillRepeatedly(DoAll(                      \
+        Invoke([](                              \
+            ServerContext*,                     \
+            const csi::name##Request*,          \
+            csi::name##Response* response) {    \
+          response->mutable_result();           \
+        }),                                     \
+        Return(Status::OK)));
+
   CSI_METHOD_FOREACH(DECLARE_MOCK_CSI_METHOD_IMPL)
+
+#undef DECLARE_MOCK_CSI_METHOD_IMPL
 }
 
 

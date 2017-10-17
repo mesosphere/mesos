@@ -29,10 +29,6 @@
 
 #include "csi/spec.hpp"
 
-namespace mesos {
-namespace internal {
-namespace tests {
-
 #define CSI_METHOD_FOREACH(macro)        \
   macro(GetSupportedVersions)            \
   macro(GetPluginInfo)                   \
@@ -50,11 +46,9 @@ namespace tests {
   macro(ProbeNode)                       \
   macro(NodeGetCapabilities)
 
-#define DECLARE_MOCK_CSI_METHOD(name)    \
-  MOCK_METHOD3(name, grpc::Status(       \
-      grpc::ServerContext* context,      \
-      const csi::name##Request* request, \
-      csi::name##Response* response));
+namespace mesos {
+namespace internal {
+namespace tests {
 
 // Definition of a mock CSI plugin to be used in tests with gmock.
 class MockCSIPlugin : public csi::Identity::Service,
@@ -64,7 +58,15 @@ class MockCSIPlugin : public csi::Identity::Service,
 public:
   MockCSIPlugin();
 
+#define DECLARE_MOCK_CSI_METHOD(name)    \
+  MOCK_METHOD3(name, grpc::Status(       \
+      grpc::ServerContext* context,      \
+      const csi::name##Request* request, \
+      csi::name##Response* response));
+
   CSI_METHOD_FOREACH(DECLARE_MOCK_CSI_METHOD)
+
+#undef DECLARE_MOCK_CSI_METHOD
 
   Try<Nothing> Startup(const std::string& address);
   Try<Nothing> Shutdown();
