@@ -34,6 +34,8 @@ message Event {
 
     SUBSCRIBED = 1;   // See 'Subscribed' below.
     OPERATION = 2;    // See 'Operation' below.
+    PUBLISH = 3;      // See 'Publish' below.
+    UNPUBLISH = 4;    // See 'Unpublish' below.
   }
 
   // First event received by the resource provider when it subscribes
@@ -68,9 +70,27 @@ message Event {
     required bytes resource_version_uuid = 4;
   }
 
+  // Received when the master wants to launch a task using resources
+  // of this resource provider.
+  message Publish {
+    required bytes uuid = 1;
+    required SlaveID agent_id = 2;
+    required FrameworkID framework_id = 3;
+    repeated Resource resources = 4;
+  }
+
+  // Received when the master cleans up a finished task that used
+  // resource of this resource provider.
+  message Unpublish {
+    required bytes uuid = 1;
+    repeated Resource resources = 2;
+  }
+
   optional Type type = 1;
   optional Subscribed subscribed = 2;
   optional Operation operation = 3;
+  optional Publish publish = 4;
+  optional Unpublish unpublish = 5;
 }
 
 
@@ -85,6 +105,8 @@ message Call {
     SUBSCRIBE = 1;                     // See 'Subscribe'.
     UPDATE_OFFER_OPERATION_STATUS = 2; // See 'UpdateOfferOperationStatus'.
     UPDATE_STATE = 3;                  // See 'UpdateState'.
+    PUBLISHED = 4;                     // See 'Published' below.
+    UNPUBLISHED = 5;                   // See 'Unpublished' below.
   }
 
   // Request to subscribe with the master.
@@ -128,6 +150,14 @@ message Call {
     required bytes resource_version_uuid = 3;
   }
 
+  message Published {
+    required bytes uuid = 1;
+  }
+
+  message Unpublished {
+    required bytes uuid = 1;
+  }
+
   // Identifies who generated this call.
   // The 'ResourceProviderManager' assigns a resource provider ID when
   // a new resource provider subscribes for the first time. Once
@@ -142,4 +172,6 @@ message Call {
   optional Subscribe subscribe = 3;
   optional UpdateOfferOperationStatus update_offer_operation_status = 4;
   optional UpdateState update_state = 5;
+  optional Published published = 6;
+  optional Unpublished unpublished = 7;
 }
