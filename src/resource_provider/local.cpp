@@ -18,6 +18,8 @@
 
 #include "resource_provider/storage/provider.hpp"
 
+using std::string;
+
 using process::Owned;
 
 namespace mesos {
@@ -25,12 +27,13 @@ namespace internal {
 
 Try<Owned<LocalResourceProvider>> LocalResourceProvider::create(
     const process::http::URL& url,
-    const ResourceProviderInfo& info)
+    const ResourceProviderInfo& info,
+    const Option<string>& authToken)
 {
   // TODO(jieyu): Document the built-in local resource providers.
   if (info.type() == "org.apache.mesos.rp.local.storage") {
     Try<Owned<LocalResourceProvider>> provider =
-      StorageLocalResourceProvider::create(url, info);
+      StorageLocalResourceProvider::create(url, info, authToken);
 
     if (provider.isError()) {
       return Error(
