@@ -19,16 +19,20 @@
 #include <glog/logging.h>
 
 #include <process/after.hpp>
+#include <process/collect.hpp>
 #include <process/defer.hpp>
 #include <process/id.hpp>
 #include <process/loop.hpp>
 #include <process/process.hpp>
 #include <process/timeout.hpp>
 
+#include <mesos/resources.hpp>
+
 #include <mesos/resource_provider/resource_provider.hpp>
 
 #include <mesos/v1/resource_provider.hpp>
 
+#include <stout/foreach.hpp>
 #include <stout/fs.hpp>
 #include <stout/os.hpp>
 
@@ -48,6 +52,7 @@ namespace http = process::http;
 
 namespace paths = mesos::internal::slave::paths;
 
+using std::list;
 using std::queue;
 using std::shared_ptr;
 using std::string;
@@ -63,6 +68,7 @@ using process::Promise;
 using process::Timeout;
 
 using process::after;
+using process::await;
 using process::defer;
 using process::loop;
 using process::spawn;
@@ -72,6 +78,7 @@ using process::wait;
 using process::http::authentication::Principal;
 
 using mesos::ResourceProviderInfo;
+using mesos::Resources;
 
 using mesos::resource_provider::Call;
 using mesos::resource_provider::Event;
@@ -92,6 +99,7 @@ static const string SLRP_NAME_RESERVED = ".-";
 // TODO(chhsiao): Make the timeout configurable.
 static const Duration CSI_ENDPOINT_CREATION_TIMEOUT = Seconds(5);
 static const string CSI_SYMLINK = "csi";
+static const uint32_t CSI_MAX_ENTRIES = 100;
 
 
 // Returns a prefix for naming components of the resource provider. This
@@ -204,6 +212,10 @@ private:
   void publish(const Event::Publish& publish);
   void unpublish(const Event::Unpublish& unpublish);
 
+  Future<csi::Client> loadController();
+  Future<csi::Client> loadNode();
+  Future<Nothing> loadResources();
+
   Future<csi::Client> connect(const string& plugin);
   Future<csi::Client> launch(const string& plugin);
   Future<Nothing> kill(const string& plugin);
@@ -218,6 +230,15 @@ private:
   csi::Version csiVersion;
   process::grpc::client::Runtime runtime;
   Owned<v1::resource_provider::Driver> driver;
+
+  Option<csi::GetPluginInfoResponse::Result> controllerInfo;
+  Option<csi::GetPluginInfoResponse::Result> nodeInfo;
+  Option<csi::ControllerCapabilities> controllerCapabilities;
+  Option<csi::NodeCapabilities> nodeCapabilities;
+  Option<csi::GetNodeIDResponse::Result> nodeId;
+  Future<csi::Client> controllerClient;
+  Future<csi::Client> nodeClient;
+  Resources resources;
 };
 
 
@@ -361,6 +382,29 @@ void StorageLocalResourceProviderProcess::subscribed(
         << "': " << symlink.error();
     }
   }
+
+  const string error =
+    "Failed to update total resource with type '" + info.type() +
+    "' and name '" + info.name();
+
+  // NOTE: Currently, CSI does not have a `ProbeController` call, so we
+  // we rely on `ProbeNode` to validate the runtime environment. In the
+  // future, we would like to deserialize loading of both plugins.
+  loadNode()
+    .then(defer(self(), &Self::loadController))
+    .then(defer(self(), &Self::loadResources))
+    .then(defer(self(), [this] {
+      Call call;
+      call.set_type(Call::UPDATE_STATE);
+      call.mutable_resource_provider_id()->CopyFrom(info.id());
+
+      Call::UpdateState* update = call.mutable_update_state();
+      update->mutable_resources()->CopyFrom(resources);
+
+      return driver->send(evolve(call));
+    }))
+    .onFailed(std::bind(err, error, lambda::_1))
+    .onDiscarded(std::bind(err, error, "future discarded"));
 }
 
 
@@ -378,6 +422,275 @@ void StorageLocalResourceProviderProcess::publish(const Event::Publish& publish)
 void StorageLocalResourceProviderProcess::unpublish(
     const Event::Unpublish& unpublish)
 {
+}
+
+
+Future<csi::Client> StorageLocalResourceProviderProcess::loadController()
+{
+  // Discard the previous loading chain if there is one.
+  controllerClient.discard();
+  controllerInfo = None();
+  controllerCapabilities = None();
+
+  return controllerClient = connect(info.storage().controller_plugin())
+    .then(defer(self(), [this](csi::Client client) {
+      // Get the plugin info and check for consistency.
+      csi::GetPluginInfoRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+
+      return client.GetPluginInfo(request)
+        .then([=](const csi::GetPluginInfoResponse& response)
+            -> Future<csi::Client> {
+          controllerInfo = response.result();
+
+          LOG(INFO)
+            << "Plugin '" << info.storage().controller_plugin() << "' loaded: "
+            << stringify(controllerInfo.get());
+
+          if (nodeInfo.isSome() &&
+              (nodeInfo->name() != controllerInfo->name() ||
+               nodeInfo->vendor_version() !=
+               controllerInfo->vendor_version())) {
+            LOG(WARNING)
+              << "Inconsistent controller and node plugins. Please check with "
+                 "the plugin vendors to ensure compatibility.";
+          }
+
+          return client;
+        });
+    }))
+    .then(defer(self(), [this](csi::Client client) {
+      // Get the controller capabilities.
+      csi::ControllerGetCapabilitiesRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+
+      return client.ControllerGetCapabilities(request)
+        .then([=](const csi::ControllerGetCapabilitiesResponse& response)
+            -> Future<csi::Client> {
+          controllerCapabilities = response.result().capabilities();
+
+          return client;
+        });
+    }))
+    .onAny(defer(self(), [this](const Future<csi::Client>& future) {
+      if (!future.isReady()) {
+        kill(info.storage().controller_plugin());
+      }
+    }));
+}
+
+
+Future<csi::Client> StorageLocalResourceProviderProcess::loadNode()
+{
+  // Discard the previous loading chain if there is one.
+  nodeClient.discard();
+  nodeInfo = None();
+  nodeCapabilities = None();
+  nodeId = None();
+
+  return nodeClient = connect(info.storage().node_plugin())
+    .then(defer(self(), [this](csi::Client client) {
+      // Get the plugin info and check for consistency.
+      csi::GetPluginInfoRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+
+      return client.GetPluginInfo(request)
+        .then([=](const csi::GetPluginInfoResponse& response)
+            -> Future<csi::Client> {
+          nodeInfo = response.result();
+
+          LOG(INFO)
+            << "Plugin '" << info.storage().node_plugin() << "' loaded: "
+            << stringify(nodeInfo.get());
+
+          if (controllerInfo.isSome() &&
+              (controllerInfo->name() != nodeInfo->name() ||
+               controllerInfo->vendor_version() !=
+               nodeInfo->vendor_version())) {
+            LOG(WARNING)
+              << "Inconsistent controller and node plugins. Please check with "
+                 "the plugin vendors to ensure compatibility.";
+          }
+
+          return client;
+        });
+    }))
+    .then(defer(self(), [this](csi::Client client) {
+      // Probe the plugin to validate the runtime environment.
+      csi::ProbeNodeRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+
+      return client.ProbeNode(request)
+        .then([=](const csi::ProbeNodeResponse& response)
+            -> Future<csi::Client> {
+          return client;
+        });
+    }))
+    .then(defer(self(), [this](csi::Client client) {
+      // Get the node capabilities.
+      csi::NodeGetCapabilitiesRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+
+      return client.NodeGetCapabilities(request)
+        .then([=](const csi::NodeGetCapabilitiesResponse& response)
+            -> Future<csi::Client> {
+          nodeCapabilities = response.result().capabilities();
+
+          return client;
+        });
+    }))
+    .then(defer(self(), [this](csi::Client client) {
+      // Get the node ID.
+      csi::GetNodeIDRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+
+      return client.GetNodeID(request)
+        .then([=](const csi::GetNodeIDResponse& response)
+            -> Future<csi::Client> {
+          nodeId = response.result();
+
+          return client;
+        });
+    }))
+    .onAny(defer(self(), [this](const Future<csi::Client>& future) {
+      if (!future.isReady()) {
+        kill(info.storage().node_plugin());
+      }
+    }));
+}
+
+
+Future<Nothing> StorageLocalResourceProviderProcess::loadResources()
+{
+  // NOTE: This can only be called after `loadController`.
+  CHECK_SOME(controllerCapabilities);
+
+  return controllerClient
+    .then(defer(self(), [this](csi::Client client) {
+      list<Future<Resources>> futures;
+
+      if (controllerCapabilities->getCapacity) {
+        // TODO(chhsiao): Query the capacity for each profile.
+        csi::GetCapacityRequest request;
+        request.mutable_version()->CopyFrom(csiVersion);
+
+        futures.emplace_back(client.GetCapacity(request)
+          .then(defer(self(), [this](const csi::GetCapacityResponse& response) {
+            Resources resources;
+
+            // TODO(chhsiao): Here we assume that `total_capacity` is
+            // the available capacity to follow the latest CSI spec.
+            Resource resource = Resources::parse(
+                "disk",
+                stringify(response.result().total_capacity()),
+                "*").get();
+            resource.mutable_disk()->mutable_source()->set_type(
+                Resource::DiskInfo::Source::RAW);
+
+            if (Resources::isEmpty(resource)) {
+              LOG(WARNING)
+                << "Ignored empty resource "<< resource << "from plugin '"
+                << info.storage().controller_plugin() << "'";
+            } else if (!controllerCapabilities->createDeleteVolume) {
+              LOG(WARNING)
+                << "Ignored resource " << resource << " from plugin '"
+                << info.storage().controller_plugin()
+                << "': Capability 'CREATE_DELETE_VOLUME' is not supported";
+            } else {
+              resources += resource;
+            }
+
+            return resources;
+          })));
+      }
+
+      if (controllerCapabilities->listVolumes) {
+        Owned<list<Future<Resource>>> volumes;
+        Owned<string> startingToken(new string);
+
+        futures.emplace_back(loop(
+          self(),
+          [=]() mutable -> Future<csi::ListVolumesResponse> {
+            csi::ListVolumesRequest request;
+            request.mutable_version()->CopyFrom(csiVersion);
+            request.set_max_entries(CSI_MAX_ENTRIES);
+            request.set_starting_token(*startingToken);
+
+            return client.ListVolumes(request);
+          },
+          [=](const csi::ListVolumesResponse& response)
+              -> ControlFlow<list<Future<Resource>>> {
+            foreach (const auto& entry, response.result().entries()) {
+              const csi::VolumeInfo& volume = entry.volume_info();
+
+              // TODO(chhsiao): Recover volume profiles from checkpoints
+              // and validate volume capabilities.
+              Resource resource = Resources::parse(
+                  "disk", stringify(volume.capacity_bytes()), "*").get();
+              Resource::DiskInfo::Source* source =
+                resource.mutable_disk()->mutable_source();
+
+              // TODO(chhsiao): Use ID string once we update the CSI spec.
+              source->set_id(stringify(volume.id()));
+              if (volume.has_metadata()) {
+                *source->mutable_metadata() =
+                  csi::volumeMetadataToLabels(volume.metadata());
+              }
+
+              if (Resources::isEmpty(resource)) {
+                LOG(WARNING)
+                  << "Ignored empty resource " << resource << " from plugin '"
+                  << info.storage().controller_plugin() << "'";
+              } else {
+                // TODO(chhsiao): Emplace the future of
+                // `ValidateVolumeCapabilities`.
+                volumes->emplace_back(resource);
+              }
+            }
+
+            *startingToken = response.result().next_token();
+            if (startingToken->empty()) {
+              return Break(*volumes);
+            }
+
+            return Continue();
+          })
+          .then(defer(self(), [=](const list<Future<Resource>>& volumes) {
+            return await(volumes)
+              .then(defer(self(), [](const list<Future<Resource>>& volumes) {
+                Resources resources;
+
+                foreach (const Future<Resource>& volume, volumes) {
+                  if (volume.isReady()) {
+                    resources += volume.get();
+                  }
+                }
+
+                return resources;
+              }));
+          })));
+      }
+
+      return await(futures)
+        .then(defer(self(), [this](const list<Future<Resources>>& futures) {
+          foreach (const Future<Resources>& future, futures) {
+            if (future.isReady()) {
+              resources += future.get();
+            } else {
+              LOG(ERROR)
+                << "Failed to load resources with type '" << info.type()
+                << "' and name '" << info.name() << "': "
+                << (future.isFailed() ? future.failure() : "future discarded");
+            }
+          }
+
+          LOG(INFO)
+            << "Total resources of type '" << info.type() << "' and name '"
+            << info.name() << "': " << resources;
+
+          return Nothing();
+        }));
+    }));
 }
 
 
