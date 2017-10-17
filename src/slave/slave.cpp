@@ -215,8 +215,7 @@ Slave::Slave(const string& id,
     executorDirectoryMaxAllowedAge(age(0)),
     resourceEstimator(_resourceEstimator),
     qosController(_qosController),
-    authorizer(_authorizer),
-    secretGenerator(nullptr) {}
+    authorizer(_authorizer) {}
 
 
 Slave::~Slave()
@@ -231,8 +230,6 @@ Slave::~Slave()
   }
 
   delete authenticatee;
-
-  delete secretGenerator;
 }
 
 
@@ -343,7 +340,7 @@ void Slave::initialize()
     }
 
     secretKey = secretKey_.get();
-    secretGenerator = new JWTSecretGenerator(secretKey.get());
+    secretGenerator.reset(new JWTSecretGenerator(secretKey.get()));
   }
 
   if (flags.authenticate_http_executors) {
@@ -432,7 +429,10 @@ void Slave::initialize()
       self().id + "/api/v1/resource_provider");
 
   Try<Owned<LocalResourceProviderDaemon>> _localResourceProviderDaemon =
-    LocalResourceProviderDaemon::create(localResourceProviderURL, flags);
+    LocalResourceProviderDaemon::create(
+        localResourceProviderURL,
+        flags,
+        secretGenerator);
 
   if (_localResourceProviderDaemon.isError()) {
     EXIT(EXIT_FAILURE)

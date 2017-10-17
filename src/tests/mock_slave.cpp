@@ -159,8 +159,7 @@ void MockSlave::initialize()
   Slave::initialize();
 
   if (mockSecretGenerator.isSome()) {
-    delete secretGenerator;
-    secretGenerator = mockSecretGenerator.get();
+    secretGenerator.reset(mockSecretGenerator.get());
     mockSecretGenerator = None();
   }
 }

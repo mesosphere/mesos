@@ -664,7 +664,7 @@ private:
 
 protected:
   // Made protected for testing purposes.
-  mesos::SecretGenerator* secretGenerator;
+  std::shared_ptr<mesos::SecretGenerator> secretGenerator;
 };
 
 
