@@ -1239,7 +1239,11 @@ void Slave::registered(
       }
 
       // Start the local resource providers daemon once we have the slave id.
-      Try<Nothing> started = localResourceProviderDaemon->start(info.id());
+      // NOTE: We pass the secret generator here instead of daemon
+      // creation because of the way we currently hook up the mock
+      // secret generator in `MockSlave` for testing.
+      Try<Nothing> started =
+        localResourceProviderDaemon->start(info.id(), secretGenerator);
       if (started.isError()) {
         LOG(ERROR)
           << "Failed to start local resource provider daemon: "
@@ -6319,7 +6323,11 @@ Future<Nothing> Slave::recover(const Try<state::State>& state)
       info = slaveState->info.get(); // Recover the slave info.
 
       // Start the local resource providers daemon once we have the slave id.
-      Try<Nothing> started = localResourceProviderDaemon->start(info.id());
+      // NOTE: We pass the secret generator here instead of daemon
+      // creation because of the way we currently hook up the mock
+      // secret generator in `MockSlave` for testing.
+      Try<Nothing> started =
+        localResourceProviderDaemon->start(info.id(), secretGenerator);
       if (started.isError()) {
         LOG(ERROR)
           << "Failed to start local resource provider daemon: "

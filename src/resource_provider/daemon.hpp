@@ -21,6 +21,8 @@
 
 #include <mesos/mesos.hpp>
 
+#include <mesos/authentication/secret_generator.hpp>
+
 #include <process/http.hpp>
 #include <process/owned.hpp>
 
@@ -54,7 +56,9 @@ public:
   LocalResourceProviderDaemon& operator=(
       const LocalResourceProviderDaemon& other) = delete;
 
-  Try<Nothing> start(const SlaveID& slaveId);
+  Try<Nothing> start(
+      const SlaveID& slaveId,
+      SecretGenerator* secretGenerator);
 
 private:
   LocalResourceProviderDaemon(
