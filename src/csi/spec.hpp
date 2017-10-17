@@ -20,4 +20,12 @@
 // ONLY USEFUL AFTER RUNNING PROTOC WITH GRPC CPP PLUGIN.
 #include "csi/csi.grpc.pb.h"
 
+namespace mesos {
+namespace csi {
+
+using namespace ::csi;
+
+} // namespace csi {
+} // namespace mesos {
+
 #endif // __CSI_SPEC_HPP__
