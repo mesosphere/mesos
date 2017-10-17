@@ -599,6 +599,18 @@ Future<Response> Http::_api(
 
     case mesos::agent::Call::ATTACH_CONTAINER_OUTPUT:
       return attachContainerOutput(call, mediaTypes, principal);
+
+    case mesos::agent::Call::LAUNCH_CONTAINER:
+      return launchContainer(call, mediaTypes.accept, principal);
+
+    case mesos::agent::Call::WAIT_CONTAINER:
+      return waitContainer(call, mediaTypes.accept, principal);
+
+    case mesos::agent::Call::KILL_CONTAINER:
+      return killContainer(call, mediaTypes.accept, principal);
+
+    case mesos::agent::Call::REMOVE_CONTAINER:
+      return removeContainer(call, mediaTypes.accept, principal);
   }
 
   UNREACHABLE();
@@ -2332,9 +2344,10 @@ Future<Response> Http::launchNestedContainer(
 
   return approver
     .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
-      return _launchNestedContainer(
+      return _launchContainer(
           call.launch_nested_container().container_id(),
           call.launch_nested_container().command(),
+          None(),
           call.launch_nested_container().has_container()
             ? call.launch_nested_container().container()
             : Option<ContainerInfo>::none(),
@@ -2345,28 +2358,85 @@ Future<Response> Http::launchNestedContainer(
 }
 
 
-Future<Response> Http::_launchNestedContainer(
+Future<Response> Http::launchContainer(
+    const mesos::agent::Call& call,
+    ContentType acceptType,
+    const Option<Principal>& principal) const
+{
+  CHECK_EQ(mesos::agent::Call::LAUNCH_CONTAINER, call.type());
+  CHECK(call.has_launch_container());
+
+  Future<Owned<ObjectApprover>> approver;
+
+  if (slave->authorizer.isSome()) {
+    Option<authorization::Subject> subject = createSubject(principal);
+
+    approver = slave->authorizer.get()->getObjectApprover(
+        subject,
+        call.launch_container().container_id().has_parent()
+          ? authorization::LAUNCH_NESTED_CONTAINER
+          : authorization::LAUNCH_STANDALONE_CONTAINER);
+  } else {
+    approver = Owned<ObjectApprover>(new AcceptingObjectApprover());
+  }
+
+  return approver
+    .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver)
+        -> Future<Response> {
+      return _launchContainer(
+          call.launch_container().container_id(),
+          call.launch_container().command(),
+          call.launch_container().resources(),
+          call.launch_container().has_container()
+            ? call.launch_container().container()
+            : Option<ContainerInfo>::none(),
+          ContainerClass::DEFAULT,
+          acceptType,
+          approver);
+    }));
+}
+
+
+Future<Response> Http::_launchContainer(
     const ContainerID& containerId,
     const CommandInfo& commandInfo,
+    const Option<Resources>& resources,
     const Option<ContainerInfo>& containerInfo,
     const Option<ContainerClass>& containerClass,
     ContentType acceptType,
     const Owned<ObjectApprover>& approver) const
 {
+  ObjectApprover::Object approvalObject;
+  Option<string> containerUser = None();
+
+  // Attempt to get the executor associated with this ContainerID.
+  // We only expect to get the executor when launching a nested container
+  // under a container launched via a scheduler. In other cases, we are
+  // launching a standalone container (possibly nested).
   Executor* executor = slave->getExecutor(containerId);
   if (executor == nullptr) {
-    return NotFound("Container " + stringify(containerId) + " cannot be found");
+    approvalObject = ObjectApprover::Object(commandInfo, containerId);
+
+    Result<string> user = os::user();
+    if (user.isError()) {
+      return InternalServerError("Failed to determine current user");
+    }
+
+    containerUser = user.get();
+  } else {
+    Framework* framework = slave->getFramework(executor->frameworkId);
+    CHECK_NOTNULL(framework);
+
+    approvalObject = ObjectApprover::Object(
+        executor->info,
+        framework->info,
+        commandInfo,
+        containerId);
+
+    containerUser = executor->user;
   }
 
-  Framework* framework = slave->getFramework(executor->frameworkId);
-  CHECK_NOTNULL(framework);
-
-  Try<bool> approved = approver.get()->approved(
-      ObjectApprover::Object(
-          executor->info,
-          framework->info,
-          commandInfo,
-          containerId));
+  Try<bool> approved = approver.get()->approved(approvalObject);
 
   if (approved.isError()) {
     return Failure(approved.error());
@@ -2374,21 +2444,37 @@ Future<Response> Http::_launchNestedContainer(
     return Forbidden();
   }
 
-  // By default, we use the executor's user.
-  // The command user overrides it if specified.
-  Option<string> user = executor->user;
+  return __launchContainer(
+      containerId,
+      commandInfo,
+      containerUser,
+      resources,
+      containerInfo,
+      containerClass,
+      acceptType);
+}
 
-#ifndef __WINDOWS__
-  if (commandInfo.has_user()) {
-    user = commandInfo.user();
-  }
-#endif
 
+Future<Response> Http::__launchContainer(
+    const ContainerID& containerId,
+    const CommandInfo& commandInfo,
+    const Option<string>& defaultUser,
+    const Option<Resources>& resources,
+    const Option<ContainerInfo>& containerInfo,
+    const Option<ContainerClass>& containerClass,
+    ContentType acceptType) const
+{
   ContainerConfig containerConfig;
   containerConfig.mutable_command_info()->CopyFrom(commandInfo);
 
-  if (user.isSome()) {
-    containerConfig.set_user(user.get());
+  if (commandInfo.has_user()) {
+    containerConfig.set_user(commandInfo.user());
+  } else if (defaultUser.isSome()) {
+    containerConfig.set_user(defaultUser.get());
+  }
+
+  if (resources.isSome()) {
+    containerConfig.mutable_resources()->CopyFrom(resources.get());
   }
 
   if (containerInfo.isSome()) {
@@ -2397,6 +2483,36 @@ Future<Response> Http::_launchNestedContainer(
 
   if (containerClass.isSome()) {
     containerConfig.set_container_class(containerClass.get());
+  }
+
+  // For standalone top-level containers, supply a sandbox directory.
+  if (!containerId.has_parent()) {
+    const string directory =
+      slave::paths::getContainerPath(slave->flags.work_dir, containerId);
+
+    // NOTE: The below mirrors logic executed before the agent calls
+    // `containerizer->launch`.  See `slave::paths::createExecutorDirectory`.
+    Try<Nothing> mkdir = os::mkdir(directory);
+    if (mkdir.isError()) {
+      return InternalServerError(
+          "Failed to create sandbox directory: " + mkdir.error());
+    }
+
+// `os::chown()` is not available on Windows.
+#ifndef __WINDOWS__
+    if (containerConfig.has_user()) {
+      Try<Nothing> chown = os::chown(containerConfig.user(), directory);
+      if (chown.isError()) {
+        LOG(WARNING)
+          << "Failed to chown sandbox directory '" << directory
+          << "'. This may be due to attempting to supply a nonexistent "
+          << "user on the agent; see the description of the `--switch_user`"
+          << "agent flag for more information: " << chown.error();
+      }
+    }
+#endif // __WINDOWS__
+
+    containerConfig.set_directory(directory);
   }
 
   Future<bool> launched = slave->containerizer->launch(
@@ -2419,7 +2535,7 @@ Future<Response> Http::_launchNestedContainer(
         return;
       }
 
-      LOG(WARNING) << "Failed to launch nested container "
+      LOG(WARNING) << "Failed to launch container "
                    << containerId << ": "
                    << (launch.isFailed() ? launch.failure() : "discarded");
 
@@ -2429,7 +2545,7 @@ Future<Response> Http::_launchNestedContainer(
             return;
           }
 
-          LOG(ERROR) << "Failed to destroy nested container "
+          LOG(ERROR) << "Failed to destroy container "
                      << containerId << " after launch failure: "
                      << (destroy.isFailed() ? destroy.failure() : "discarded");
         });
@@ -2464,75 +2580,137 @@ Future<Response> Http::waitNestedContainer(
     approver = Owned<ObjectApprover>(new AcceptingObjectApprover());
   }
 
-  return approver.then(defer(slave->self(),
-    [this, call, acceptType](const Owned<ObjectApprover>& waitApprover)
-        -> Future<Response> {
-      const ContainerID& containerId =
-        call.wait_nested_container().container_id();
+  return approver
+    .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
+      return _waitContainer(
+          call.wait_nested_container().container_id(),
+          acceptType,
+          approver,
+          true);
+    }));
+}
 
-      Executor* executor = slave->getExecutor(containerId);
-      if (executor == nullptr) {
+
+Future<Response> Http::waitContainer(
+    const mesos::agent::Call& call,
+    ContentType acceptType,
+    const Option<Principal>& principal) const
+{
+  CHECK_EQ(mesos::agent::Call::WAIT_CONTAINER, call.type());
+  CHECK(call.has_wait_container());
+
+  Future<Owned<ObjectApprover>> approver;
+
+  if (slave->authorizer.isSome()) {
+    Option<authorization::Subject> subject = createSubject(principal);
+
+    approver = slave->authorizer.get()->getObjectApprover(
+        subject,
+        call.wait_container().container_id().has_parent()
+          ? authorization::WAIT_NESTED_CONTAINER
+          : authorization::WAIT_STANDALONE_CONTAINER);
+  } else {
+    approver = Owned<ObjectApprover>(new AcceptingObjectApprover());
+  }
+
+  return approver
+    .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
+      return _waitContainer(
+          call.wait_container().container_id(),
+          acceptType,
+          approver,
+          false);
+    }));
+}
+
+
+Future<Response> Http::_waitContainer(
+    const ContainerID& containerId,
+    ContentType acceptType,
+    const Owned<ObjectApprover>& approver,
+    const bool deprecated) const
+{
+  ObjectApprover::Object approvalObject;
+
+  // Attempt to get the executor associated with this ContainerID.
+  // We only expect to get the executor when waiting upon a nested container
+  // under a container launched via a scheduler. In other cases, we are
+  // waiting on a standalone container (possibly nested).
+  Executor* executor = slave->getExecutor(containerId);
+  if (executor == nullptr) {
+    approvalObject = ObjectApprover::Object(containerId);
+  } else {
+    Framework* framework = slave->getFramework(executor->frameworkId);
+    CHECK_NOTNULL(framework);
+
+    approvalObject = ObjectApprover::Object(
+        executor->info,
+        framework->info,
+        containerId);
+  }
+
+  Try<bool> approved = approver.get()->approved(approvalObject);
+
+  if (approved.isError()) {
+    return Failure(approved.error());
+  } else if (!approved.get()) {
+    return Forbidden();
+  }
+
+  return slave->containerizer->wait(containerId)
+    .then([=](const Option<ContainerTermination>& termination) -> Response {
+      if (termination.isNone()) {
         return NotFound(
             "Container " + stringify(containerId) + " cannot be found");
       }
 
-      Framework* framework = slave->getFramework(executor->frameworkId);
-      CHECK_NOTNULL(framework);
+      mesos::agent::Response response;
 
-      Try<bool> approved = waitApprover.get()->approved(
-          ObjectApprover::Object(
-              executor->info,
-              framework->info,
-              containerId));
+      // The response object depends on which API was originally used
+      // to make this call.
+      if (deprecated) {
+        response.set_type(mesos::agent::Response::WAIT_NESTED_CONTAINER);
 
-      if (approved.isError()) {
-        return Failure(approved.error());
-      } else if (!approved.get()) {
-        return Forbidden();
+        mesos::agent::Response::WaitNestedContainer* waitNestedContainer =
+          response.mutable_wait_nested_container();
+
+        if (termination->has_status()) {
+          waitNestedContainer->set_exit_status(termination->status());
+        }
+
+        if (termination->has_state()) {
+          waitNestedContainer->set_state(termination->state());
+        }
+
+        if (termination->has_reason()) {
+          waitNestedContainer->set_reason(termination->reason());
+        }
+
+        if (!termination->limited_resources().empty()) {
+          waitNestedContainer->mutable_limitation()->mutable_resources()
+            ->CopyFrom(termination->limited_resources());
+        }
+
+        if (termination->has_message()) {
+          waitNestedContainer->set_message(termination->message());
+        }
+      } else {
+        response.set_type(mesos::agent::Response::WAIT_CONTAINER);
+
+        mesos::agent::Response::WaitContainer* waitContainer =
+          response.mutable_wait_container();
+
+        if (termination->has_status()) {
+          waitContainer->set_exit_status(termination->status());
+        }
+
+        // TODO(josephw): Reconcile differences in response bodies between
+        // nested and standalone container WAIT calls.
       }
 
-      Future<Option<mesos::slave::ContainerTermination>> wait =
-        slave->containerizer->wait(containerId);
-
-      return wait
-        .then([containerId, acceptType](
-            const Option<ContainerTermination>& termination) -> Response {
-          if (termination.isNone()) {
-            return NotFound("Container " + stringify(containerId) +
-                            " cannot be found");
-          }
-
-          mesos::agent::Response response;
-          response.set_type(mesos::agent::Response::WAIT_NESTED_CONTAINER);
-
-          mesos::agent::Response::WaitNestedContainer* waitNestedContainer =
-            response.mutable_wait_nested_container();
-
-          if (termination->has_status()) {
-            waitNestedContainer->set_exit_status(termination->status());
-          }
-
-          if (termination->has_state()) {
-            waitNestedContainer->set_state(termination->state());
-          }
-
-          if (termination->has_reason()) {
-            waitNestedContainer->set_reason(termination->reason());
-          }
-
-          if (!termination->limited_resources().empty()) {
-            waitNestedContainer->mutable_limitation()->mutable_resources()
-              ->CopyFrom(termination->limited_resources());
-          }
-
-          if (termination->has_message()) {
-            waitNestedContainer->set_message(termination->message());
-          }
-
-          return OK(serialize(acceptType, evolve(response)),
-                    stringify(acceptType));
-        });
-    }));
+      return OK(serialize(acceptType, evolve(response)),
+                stringify(acceptType));
+    });
 }
 
 
@@ -2555,50 +2733,105 @@ Future<Response> Http::killNestedContainer(
     approver = Owned<ObjectApprover>(new AcceptingObjectApprover());
   }
 
-  return approver.then(defer(slave->self(),
-    [this, call](const Owned<ObjectApprover>& killApprover)
-        -> Future<Response> {
-      const ContainerID& containerId =
-        call.kill_nested_container().container_id();
+  // SIGKILL is used by default if a signal is not specified.
+  int signal = SIGKILL;
+  if (call.kill_nested_container().has_signal()) {
+    signal = call.kill_nested_container().signal();
+  }
 
-      // SIGKILL is used by default if a signal is not specified.
-      int signal = SIGKILL;
-      if (call.kill_nested_container().has_signal()) {
-        signal = call.kill_nested_container().signal();
-      }
-
-      Executor* executor = slave->getExecutor(containerId);
-      if (executor == nullptr) {
-        return NotFound(
-            "Container " + stringify(containerId) + " cannot be found");
-      }
-
-      Framework* framework = slave->getFramework(executor->frameworkId);
-      CHECK_NOTNULL(framework);
-
-      Try<bool> approved = killApprover.get()->approved(
-          ObjectApprover::Object(
-              executor->info,
-              framework->info,
-              containerId));
-
-      if (approved.isError()) {
-        return Failure(approved.error());
-      } else if (!approved.get()) {
-        return Forbidden();
-      }
-
-      Future<bool> kill = slave->containerizer->kill(containerId, signal);
-
-      return kill
-        .then([containerId](bool found) -> Response {
-          if (!found) {
-            return NotFound("Container '" + stringify(containerId) + "'"
-                            " cannot be found (or is already killed)");
-          }
-          return OK();
-        });
+  return approver
+    .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
+      return _killContainer(
+          call.kill_nested_container().container_id(),
+          signal,
+          acceptType,
+          approver);
     }));
+}
+
+
+Future<Response> Http::killContainer(
+    const mesos::agent::Call& call,
+    ContentType acceptType,
+    const Option<Principal>& principal) const
+{
+  CHECK_EQ(mesos::agent::Call::KILL_CONTAINER, call.type());
+  CHECK(call.has_kill_container());
+
+  Future<Owned<ObjectApprover>> approver;
+
+  if (slave->authorizer.isSome()) {
+    Option<authorization::Subject> subject = createSubject(principal);
+
+    approver = slave->authorizer.get()->getObjectApprover(
+        subject,
+        call.kill_container().container_id().has_parent()
+          ? authorization::KILL_NESTED_CONTAINER
+          : authorization::KILL_STANDALONE_CONTAINER);
+  } else {
+    approver = Owned<ObjectApprover>(new AcceptingObjectApprover());
+  }
+
+  // SIGKILL is used by default if a signal is not specified.
+  int signal = SIGKILL;
+  if (call.kill_container().has_signal()) {
+    signal = call.kill_container().signal();
+  }
+
+  return approver
+    .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
+      return _killContainer(
+          call.kill_container().container_id(),
+          signal,
+          acceptType,
+          approver);
+    }));
+}
+
+
+Future<Response> Http::_killContainer(
+    const ContainerID& containerId,
+    const int signal,
+    ContentType acceptType,
+    const Owned<ObjectApprover>& approver) const
+{
+  ObjectApprover::Object approvalObject;
+
+  // Attempt to get the executor associated with this ContainerID.
+  // We only expect to get the executor when killing a nested container
+  // under a container launched via a scheduler. In other cases, we are
+  // killing a standalone container (possibly nested).
+  Executor* executor = slave->getExecutor(containerId);
+  if (executor == nullptr) {
+    approvalObject = ObjectApprover::Object(containerId);
+  } else {
+    Framework* framework = slave->getFramework(executor->frameworkId);
+    CHECK_NOTNULL(framework);
+
+    approvalObject = ObjectApprover::Object(
+        executor->info,
+        framework->info,
+        containerId);
+  }
+
+  Try<bool> approved = approver.get()->approved(approvalObject);
+
+  if (approved.isError()) {
+    return Failure(approved.error());
+  } else if (!approved.get()) {
+    return Forbidden();
+  }
+
+  Future<bool> kill = slave->containerizer->kill(containerId, signal);
+
+  return kill
+    .then([containerId](bool found) -> Response {
+      if (!found) {
+        return NotFound("Container '" + stringify(containerId) + "'"
+                        " cannot be found (or is already killed)");
+      }
+      return OK();
+    });
 }
 
 
@@ -2621,45 +2854,93 @@ Future<Response> Http::removeNestedContainer(
     approver = Owned<ObjectApprover>(new AcceptingObjectApprover());
   }
 
-  return approver.then(defer(slave->self(),
-    [this, call](const Owned<ObjectApprover>& removeApprover)
-        -> Future<Response> {
-      const ContainerID& containerId =
-        call.remove_nested_container().container_id();
-
-      Executor* executor = slave->getExecutor(containerId);
-      if (executor == nullptr) {
-        return OK();
-      }
-
-      Framework* framework = slave->getFramework(executor->frameworkId);
-      CHECK_NOTNULL(framework);
-
-      Try<bool> approved = removeApprover.get()->approved(
-          ObjectApprover::Object(
-              executor->info,
-              framework->info,
-              containerId));
-
-      if (approved.isError()) {
-        return Failure(approved.error());
-      } else if (!approved.get()) {
-        return Forbidden();
-      }
-
-      Future<Nothing> remove = slave->containerizer->remove(containerId);
-
-      return remove.then(
-          [containerId](const Future<Nothing>& result) -> Response {
-            if (result.isFailed()) {
-              LOG(ERROR) << "Failed to remove nested container " << containerId
-                         << ": " << result.failure();
-              return InternalServerError(result.failure());
-            }
-
-            return OK();
-          });
+  return approver
+    .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
+      return _removeContainer(
+          call.remove_nested_container().container_id(),
+          acceptType,
+          approver);
     }));
+}
+
+
+Future<Response> Http::removeContainer(
+    const mesos::agent::Call& call,
+    ContentType acceptType,
+    const Option<Principal>& principal) const
+{
+  CHECK_EQ(mesos::agent::Call::REMOVE_CONTAINER, call.type());
+  CHECK(call.has_remove_container());
+
+  Future<Owned<ObjectApprover>> approver;
+
+  if (slave->authorizer.isSome()) {
+    Option<authorization::Subject> subject = createSubject(principal);
+
+    approver = slave->authorizer.get()->getObjectApprover(
+        subject,
+        call.remove_container().container_id().has_parent()
+          ? authorization::REMOVE_NESTED_CONTAINER
+          : authorization::REMOVE_STANDALONE_CONTAINER);
+  } else {
+    approver = Owned<ObjectApprover>(new AcceptingObjectApprover());
+  }
+
+  return approver
+    .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
+      return _removeContainer(
+          call.remove_container().container_id(),
+          acceptType,
+          approver);
+    }));
+}
+
+
+Future<Response> Http::_removeContainer(
+    const ContainerID& containerId,
+    ContentType acceptType,
+    const Owned<ObjectApprover>& approver) const
+{
+  ObjectApprover::Object approvalObject;
+
+  // Attempt to get the executor associated with this ContainerID.
+  // We only expect to get the executor when removing a nested container
+  // under a container launched via a scheduler. In other cases, we are
+  // removing a standalone container (possibly nested).
+  Executor* executor = slave->getExecutor(containerId);
+  if (executor == nullptr) {
+    approvalObject = ObjectApprover::Object(containerId);
+  } else {
+    Framework* framework = slave->getFramework(executor->frameworkId);
+    CHECK_NOTNULL(framework);
+
+    approvalObject = ObjectApprover::Object(
+        executor->info,
+        framework->info,
+        containerId);
+  }
+
+  Try<bool> approved = approver.get()->approved(approvalObject);
+
+  if (approved.isError()) {
+    return Failure(approved.error());
+  } else if (!approved.get()) {
+    return Forbidden();
+  }
+
+
+  Future<Nothing> remove = slave->containerizer->remove(containerId);
+
+  return remove
+    .then([=](const Future<Nothing>& result) -> Response {
+      if (result.isFailed()) {
+        LOG(ERROR) << "Failed to remove container " << containerId
+                   << ": " << result.failure();
+        return InternalServerError(result.failure());
+      }
+
+      return OK();
+    });
 }
 
 
@@ -2842,9 +3123,10 @@ Future<Response> Http::launchNestedContainerSession(
 
   Future<Response> response = approver
     .then(defer(slave->self(), [=](const Owned<ObjectApprover>& approver) {
-      return _launchNestedContainer(
+      return _launchContainer(
           call.launch_nested_container_session().container_id(),
           call.launch_nested_container_session().command(),
+          None(),
           call.launch_nested_container_session().has_container()
             ? call.launch_nested_container_session().container()
             : Option<ContainerInfo>::none(),
@@ -2863,7 +3145,7 @@ Future<Response> Http::launchNestedContainerSession(
   };
 
   // If `response` has failed or is not `OK`, the container will be
-  // destroyed by `_launchNestedContainer`.
+  // destroyed by `_launchContainer`.
   return response
     .then(defer(slave->self(),
                 [=](const Response& response) -> Future<Response> {
