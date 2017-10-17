@@ -73,6 +73,30 @@ Option<Error> validate(const Call& call)
 
       return None();
     }
+
+    case Call::PUBLISHED: {
+      if (!call.has_resource_provider_id()) {
+        return Error("Expecting 'resource_provider_id' to be present");
+      }
+
+      if (!call.has_published()) {
+        return Error("Expecting 'published' to be present.");
+      }
+
+      return None();
+    }
+
+    case Call::UNPUBLISHED: {
+      if (!call.has_resource_provider_id()) {
+        return Error("Expecting 'resource_provider_id' to be present");
+      }
+
+      if (!call.has_unpublished()) {
+        return Error("Expecting 'unpublished' to be present.");
+      }
+
+      return None();
+    }
   }
 
   UNREACHABLE();

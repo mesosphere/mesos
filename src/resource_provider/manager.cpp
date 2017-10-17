@@ -302,6 +302,16 @@ Future<http::Response> ResourceProviderManagerProcess::api(
       updateState(&resourceProvider, call.update_state());
       return Accepted();
     }
+
+    case Call::PUBLISHED: {
+      // TODO(nfnt): Add a 'PUBLISHED' handler.
+      return NotImplemented();
+    }
+
+    case Call::UNPUBLISHED: {
+      // TODO(nfnt): Add a 'UNPUBLISHED' handler.
+      return NotImplemented();
+    }
   }
 
   UNREACHABLE();
