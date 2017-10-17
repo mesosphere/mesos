@@ -41,6 +41,9 @@ public:
       const mesos::ResourceProviderInfo& info,
       const Option<std::string>& authToken);
 
+  static Try<process::http::authentication::Principal> principal(
+      const mesos::ResourceProviderInfo& info);
+
   ~StorageLocalResourceProvider() override;
 
   StorageLocalResourceProvider(

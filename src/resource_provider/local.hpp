@@ -17,6 +17,7 @@
 #ifndef __RESOURCE_PROVIDER_LOCAL_HPP__
 #define __RESOURCE_PROVIDER_LOCAL_HPP__
 
+#include <process/authenticator.hpp>
 #include <process/http.hpp>
 #include <process/owned.hpp>
 
@@ -32,8 +33,11 @@ class LocalResourceProvider
 public:
   static Try<process::Owned<LocalResourceProvider>> create(
       const process::http::URL& url,
-      const ResourceProviderInfo& info,
+      const mesos::ResourceProviderInfo& info,
       const Option<std::string>& authToken);
+
+  static Try<process::http::authentication::Principal> principal(
+      const mesos::ResourceProviderInfo& info);
 
   virtual ~LocalResourceProvider() = default;
 };
