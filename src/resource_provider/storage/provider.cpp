@@ -39,6 +39,7 @@
 #include <stout/os.hpp>
 
 #include "common/http.hpp"
+#include "common/validation.hpp"
 
 #include "csi/client.hpp"
 #include "csi/utils.hpp"
@@ -53,7 +54,9 @@
 namespace http = process::http;
 
 namespace paths = mesos::internal::slave::paths;
+namespace validation = mesos::internal::common::validation;
 
+using std::bind;
 using std::list;
 using std::queue;
 using std::shared_ptr;
@@ -81,6 +84,7 @@ using process::wait;
 
 using process::http::authentication::Principal;
 
+using mesos::Offer;
 using mesos::ResourceProviderInfo;
 using mesos::Resources;
 
@@ -223,10 +227,21 @@ public:
 private:
   void initialize() override;
 
+  // Functions for received events.
   void subscribed(const Event::Subscribed& subscribed);
   void operation(const Event::Operation& operation);
   void publish(const Event::Publish& publish);
   void unpublish(const Event::Unpublish& unpublish);
+
+  // Functions for offer operations.
+  Future<Try<Resources>> createVolume(
+      const Offer::Operation::CreateVolume& create);
+  Future<Try<Resources>> destroyVolume(
+      const Offer::Operation::DestroyVolume& destroy);
+  Future<Try<Resources>> createBlock(
+      const Offer::Operation::CreateBlock& create);
+  Future<Try<Resources>> destroyBlock(
+      const Offer::Operation::DestroyBlock& destroy);
 
   Future<csi::Client> loadController();
   Future<csi::Client> loadNode();
@@ -256,6 +271,7 @@ private:
   Option<csi::GetNodeIDResponse::Result> nodeId;
   Future<csi::Client> controllerClient;
   Future<csi::Client> nodeClient;
+
   Resources resources;
 };
 
@@ -429,6 +445,108 @@ void StorageLocalResourceProviderProcess::subscribed(
 void StorageLocalResourceProviderProcess::operation(
     const Event::Operation& operation)
 {
+  const Offer::Operation& _operation = operation.info();
+
+  LOG(INFO) << "Received " << _operation.type() << " operation";
+
+  Promise<Try<Resources>> promise;
+
+  switch (_operation.type()) {
+    case Offer::Operation::RESERVE: {
+      CHECK(_operation.has_reserve());
+      promise.set(Try<Resources>::some(_operation.reserve().resources()));
+      break;
+    }
+    case Offer::Operation::UNRESERVE: {
+      CHECK(_operation.has_unreserve());
+      promise.set(Try<Resources>::some(_operation.unreserve().resources()));
+      break;
+    }
+    case Offer::Operation::CREATE: {
+      CHECK(_operation.has_create());
+      promise.set(Try<Resources>::some(_operation.create().volumes()));
+      break;
+    }
+    case Offer::Operation::DESTROY: {
+      CHECK(_operation.has_destroy());
+      promise.set(Try<Resources>::some(_operation.destroy().volumes()));
+      break;
+    }
+    case Offer::Operation::CREATE_VOLUME: {
+      CHECK(_operation.has_create_volume());
+      promise.associate(createVolume(_operation.create_volume()));
+      break;
+    }
+    case Offer::Operation::DESTROY_VOLUME: {
+      CHECK(_operation.has_destroy_volume());
+      promise.associate(destroyVolume(_operation.destroy_volume()));
+      break;
+    }
+    case Offer::Operation::CREATE_BLOCK: {
+      CHECK(_operation.has_create_block());
+      promise.associate(createBlock(_operation.create_block()));
+      break;
+    }
+    case Offer::Operation::DESTROY_BLOCK: {
+      CHECK(_operation.has_destroy_block());
+      promise.associate(destroyBlock(_operation.destroy_block()));
+      break;
+    }
+    default: {
+      promise.set(Try<Resources>::error(Error("Operation is not supported")));
+      break;
+    }
+  }
+
+  promise.future()
+    .onAny(defer(self(), [this, operation](
+        const Future<Try<Resources>>& future) {
+      Call call;
+      call.set_type(Call::UPDATE_OPERATION_STATUS);
+
+      Call::UpdateOperationStatus* update =
+        call.mutable_update_operation_status();
+      update->mutable_framework_id()->CopyFrom(operation.framework_id());
+      update->set_operation_uuid(operation.operation_uuid());
+
+      OfferOperationStatus* status = update->mutable_status();
+      status->set_uuid(UUID::random().toBytes());
+
+      if (operation.info().has_id()) {
+        status->mutable_operation_id()->CopyFrom(operation.info().id());
+      }
+
+      const string error =
+        "Failed to apply " + stringify(operation.info().type()) +
+        " operation: ";
+
+      if (future.isReady()) {
+        if (future->isError()) {
+          status->set_state(OFFER_OPERATION_ERROR);
+          status->set_message(error + future->error());
+        } else {
+          // We assume that the offer operation has been validated that it is
+          // applicable to the resources.
+          CHECK_SOME(resources.apply(operation.info()));
+          resources += future->get();
+
+          LOG(INFO)
+            << "Resources of type '" << info.type() << "' and name '"
+            << info.name() << "' after conversion: " << resources;
+
+          status->set_state(OFFER_OPERATION_FINISHED);
+          status->mutable_converted_resources()->CopyFrom(future->get());
+        }
+      } else if (future.isFailed()) {
+        status->set_state(OFFER_OPERATION_FAILED);
+        status->set_message(error + future.failure());
+      } else {
+        status->set_state(OFFER_OPERATION_FAILED);
+        status->set_message(error + "future discarded");
+      }
+
+      return driver->send(evolve(call));
+    }));
 }
 
 
@@ -440,6 +558,232 @@ void StorageLocalResourceProviderProcess::publish(const Event::Publish& publish)
 void StorageLocalResourceProviderProcess::unpublish(
     const Event::Unpublish& unpublish)
 {
+}
+
+
+Future<Try<Resources>> StorageLocalResourceProviderProcess::createVolume(
+    const Offer::Operation::CreateVolume& create)
+{
+  // NOTE: This can only be called after `loadController` and
+  // `loadNode`.
+  CHECK_SOME(controllerCapabilities);
+  CHECK_SOME(nodeCapabilities);
+
+  if (!controllerCapabilities->createDeleteVolume) {
+    return Failure("Capability 'CREATE_DELETE_VOLUME' is not supported");
+  }
+
+  // Prepare the converted resource here as an `Owned` and pass it into
+  // the following lambda to avoid copies.
+  Owned<Resource> converted(new Resource(create.source()));
+  converted->mutable_disk()->mutable_source()->set_type(create.target_type());
+  if (create.target_type() == Resource::DiskInfo::Source::PATH) {
+    converted->mutable_disk()->mutable_source()->mutable_path();
+  } else if (create.target_type() == Resource::DiskInfo::Source::MOUNT) {
+    converted->mutable_disk()->mutable_source()->mutable_mount();
+  }
+
+  return controllerClient
+    .then(defer(self(), [=](csi::Client client) -> Future<Try<Resources>> {
+      csi::CreateVolumeRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+      request.set_name(UUID::random().toString());
+      request.mutable_capacity_range()->set_required_bytes(
+          converted->scalar().value());
+      request.mutable_capacity_range()->set_limit_bytes(
+          converted->scalar().value());
+
+      // Pick all volume capabilities that can be used to create and
+      // publish the volume.
+      // TODO(chhsiao): Get the parameters and volume capabilities based
+      // on the profile.
+      foreach (const auto& capability, nodeCapabilities->mountVolumes) {
+        if (contains(controllerCapabilities->mountVolumes, capability)) {
+          request.mutable_volume_capabilities()->Add()->CopyFrom(capability);
+        }
+      }
+      if (request.volume_capabilities().empty()) {
+        return Failure("Failed to select volume capabilities");
+      }
+
+      return client.CreateVolume(request)
+        .then(defer(self(), [=](const csi::CreateVolumeResponse& response) {
+          const csi::VolumeInfo& volume = response.result().volume_info();
+
+          // TODO(chhsiao): Use ID string once we update the CSI spec.
+          converted->mutable_disk()->mutable_source()->set_id(
+              stringify(volume.id()));
+          if (volume.has_metadata()) {
+            *converted->mutable_disk()->mutable_source()->mutable_metadata() =
+              csi::volumeMetadataToLabels(volume.metadata());
+          }
+          if (converted->mutable_disk()->mutable_source()->has_path()) {
+            converted->mutable_disk()->mutable_source()->mutable_path()
+              ->set_root(getVolumeMountPath(csiDir, stringify(volume.id())));
+          } else if (converted->mutable_disk()->mutable_source()->has_mount()) {
+            converted->mutable_disk()->mutable_source()->mutable_mount()
+              ->set_root(getVolumeMountPath(csiDir, stringify(volume.id())));
+          }
+
+          return Try<Resources>::some(*converted);
+        }));
+    }));
+}
+
+
+Future<Try<Resources>> StorageLocalResourceProviderProcess::destroyVolume(
+    const Offer::Operation::DestroyVolume& destroy)
+{
+  // TODO(chhsiao): Make this a state machine and checkpoint the state!
+
+  // NOTE: This can only be called after `loadController` and
+  // `loadNode`.
+  CHECK_SOME(controllerCapabilities);
+
+  CHECK(destroy.volume().has_disk());
+  CHECK(destroy.volume().disk().has_source());
+  CHECK(destroy.volume().disk().source().has_id());
+
+  if (!controllerCapabilities->createDeleteVolume) {
+    return Failure("Capability 'CREATE_DELETE_VOLUME' is not supported");
+  }
+
+  // Prepare the converted resource here as an `Owned` and pass it into
+  // the following lambda to avoid copies.
+  Owned<Resource> converted(new Resource(destroy.volume()));
+  converted->mutable_disk()->mutable_source()->set_type(
+      Resource::DiskInfo::Source::RAW);
+
+  return unpublishResource(destroy.volume())
+    .then([=] {
+      return controllerClient
+        .then(defer(self(), [=](csi::Client client) {
+          // TODO(chhsiao): Use ID string once we update the CSI spec.
+          csi::DeleteVolumeRequest request;
+          request.mutable_version()->CopyFrom(csiVersion);
+          JsonStringToMessage(
+              converted->disk().source().id(), request.mutable_volume_id());
+          if (converted->disk().source().has_metadata()) {
+            *request.mutable_volume_metadata() = csi::labelsToVolumeMetadata(
+                converted->disk().source().metadata()).get();
+          }
+
+          converted->mutable_disk()->mutable_source()->clear_id();
+          converted->mutable_disk()->mutable_source()->clear_metadata();
+          converted->mutable_disk()->mutable_source()->clear_path();
+          converted->mutable_disk()->mutable_source()->clear_mount();
+
+          return client.DeleteVolume(request)
+            .then([=] { return Try<Resources>::some(*converted); });
+        }));
+    });
+}
+
+
+Future<Try<Resources>> StorageLocalResourceProviderProcess::createBlock(
+    const Offer::Operation::CreateBlock& create)
+{
+  // NOTE: This can only be called after `loadController` and
+  // `loadNode`.
+  CHECK_SOME(controllerCapabilities);
+  CHECK_SOME(nodeCapabilities);
+
+  if (!controllerCapabilities->createDeleteVolume) {
+    return Failure("Capability 'CREATE_DELETE_VOLUME' is not supported");
+  }
+
+  // Prepare the converted resource here as an `Owned` and pass it into
+  // the following lambda to avoid copies.
+  // TODO(chhsiao): Set up the `block` field once we support it.
+  Owned<Resource> converted(new Resource(create.source()));
+  converted->mutable_disk()->mutable_source()->set_type(
+      Resource::DiskInfo::Source::BLOCK);
+
+  return controllerClient
+    .then(defer(self(), [=](csi::Client client) -> Future<Try<Resources>> {
+      csi::CreateVolumeRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+      request.set_name(UUID::random().toString());
+      request.mutable_capacity_range()->set_required_bytes(
+          converted->scalar().value());
+      request.mutable_capacity_range()->set_limit_bytes(
+          converted->scalar().value());
+
+      // Pick all volume capabilities that can be used to create and
+      // publish the volume.
+      // TODO(chhsiao): Get the parameters and volume capabilities based
+      // on the profile.
+      foreach (const auto& capability, nodeCapabilities->blockVolumes) {
+        if (contains(controllerCapabilities->blockVolumes, capability)) {
+          request.mutable_volume_capabilities()->Add()->CopyFrom(capability);
+        }
+      }
+      if (request.volume_capabilities().empty()) {
+        return Failure("Failed to select volume capabilities");
+      }
+
+      return client.CreateVolume(request)
+        .then(defer(self(), [=](const csi::CreateVolumeResponse& response) {
+          const csi::VolumeInfo& volume = response.result().volume_info();
+
+          // TODO(chhsiao): Use ID string once we update the CSI spec.
+          converted->mutable_disk()->mutable_source()->set_id(
+              stringify(volume.id()));
+          if (volume.has_metadata()) {
+            *converted->mutable_disk()->mutable_source()->mutable_metadata() =
+              csi::volumeMetadataToLabels(volume.metadata());
+          }
+
+          return Try<Resources>::some(*converted);
+        }));
+    }));
+}
+
+
+Future<Try<Resources>> StorageLocalResourceProviderProcess::destroyBlock(
+    const Offer::Operation::DestroyBlock& destroy)
+{
+  // TODO(chhsiao): Make this a state machine and checkpoint the state!
+
+  // NOTE: This can only be called after `loadController` and
+  // `loadNode`.
+  CHECK_SOME(controllerCapabilities);
+
+  CHECK(destroy.block().has_disk());
+  CHECK(destroy.block().disk().has_source());
+  CHECK(destroy.block().disk().source().has_id());
+
+  if (!controllerCapabilities->createDeleteVolume) {
+    return Failure("Capability 'CREATE_DELETE_VOLUME' is not supported");
+  }
+
+  // Prepare the converted resource here as an `Owned` and pass it into
+  // the following lambda to avoid copies.
+  Owned<Resource> converted(new Resource(destroy.block()));
+  converted->mutable_disk()->mutable_source()->set_type(
+      Resource::DiskInfo::Source::RAW);
+
+  return unpublishResource(destroy.block())
+    .then([=] {
+      return controllerClient
+        .then(defer(self(), [=](csi::Client client) {
+          // TODO(chhsiao): Use ID string once we update the CSI spec.
+          csi::DeleteVolumeRequest request;
+          request.mutable_version()->CopyFrom(csiVersion);
+          JsonStringToMessage(
+              converted->disk().source().id(), request.mutable_volume_id());
+          if (converted->disk().source().has_metadata()) {
+            *request.mutable_volume_metadata() = csi::labelsToVolumeMetadata(
+                converted->disk().source().metadata()).get();
+          }
+
+          converted->mutable_disk()->mutable_source()->clear_id();
+          converted->mutable_disk()->mutable_source()->clear_metadata();
+
+          return client.DeleteVolume(request)
+            .then([=] { return Try<Resources>::some(*converted); });
+        }));
+    });
 }
 
 
@@ -602,6 +946,7 @@ Future<Nothing> StorageLocalResourceProviderProcess::loadResources()
                 "disk",
                 stringify(response.result().total_capacity()),
                 "*").get();
+            resource.mutable_provider_id()->CopyFrom(info.id());
             resource.mutable_disk()->mutable_source()->set_type(
                 Resource::DiskInfo::Source::RAW);
 
@@ -645,13 +990,13 @@ Future<Nothing> StorageLocalResourceProviderProcess::loadResources()
               // and validate volume capabilities.
               Resource resource = Resources::parse(
                   "disk", stringify(volume.capacity_bytes()), "*").get();
-              Resource::DiskInfo::Source* source =
-                resource.mutable_disk()->mutable_source();
+              resource.mutable_provider_id()->CopyFrom(info.id());
 
               // TODO(chhsiao): Use ID string once we update the CSI spec.
-              source->set_id(stringify(volume.id()));
+              resource.mutable_disk()->mutable_source()->set_id(
+                  stringify(volume.id()));
               if (volume.has_metadata()) {
-                *source->mutable_metadata() =
+                *resource.mutable_disk()->mutable_source()->mutable_metadata() =
                   csi::volumeMetadataToLabels(volume.metadata());
               }
 
