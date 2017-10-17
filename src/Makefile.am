@@ -2585,16 +2585,18 @@ mesos_tests_SOURCES +=						\
   tests/containerizer/ports_isolator_tests.cpp
 endif
 
+if ENABLE_SSL
+mesos_tests_SOURCES +=						\
+  tests/secret_generator_tests.cpp
+endif
+
 if ENABLE_GRPC
+if OS_LINUX
 mesos_tests_SOURCES +=						\
   tests/csi_client_tests.cpp					\
   tests/mock_csi_plugin.cpp					\
   tests/mock_csi_plugin.hpp
 endif
-
-if ENABLE_SSL
-mesos_tests_SOURCES +=						\
-  tests/secret_generator_tests.cpp
 endif
 
 if HAS_JAVA

@@ -14,160 +14,205 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <functional>
+
+#include <process/defer.hpp>
+
+#include <stout/protobuf.hpp>
+#include <stout/stringify.hpp>
+
 #include "csi/client.hpp"
 
+using process::Failure;
 using process::Future;
+
+using process::defer;
 
 namespace mesos {
 namespace csi {
 
+static inline bool recoverable(const csi::Error& error)
+{
+  if (error.has_create_volume_error()) {
+    if (error.create_volume_error().error_code() ==
+        csi::Error::CreateVolumeError::VOLUME_ALREADY_EXISTS) {
+      return true;
+    }
+  } else if (error.has_delete_volume_error()) {
+    if (error.delete_volume_error().error_code() ==
+        csi::Error::DeleteVolumeError::VOLUME_DOES_NOT_EXIST) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+template <typename Response>
+static inline Future<Response> validate(const Future<Response>& response)
+{
+  return response.then(defer([](const Response& response) -> Future<Response> {
+    // TODO(chhsiao): Validate the required fields of the response.
+    if (response.has_error() && !recoverable(response.error())) {
+      return Failure(response.GetDescriptor()->name() + " error: " +
+                     stringify(JSON::protobuf(response.error())));
+    }
+
+    CHECK(response.has_result());
+
+    return response;
+  }));
+}
+
+
 Future<GetSupportedVersionsResponse> Client::GetSupportedVersions(
     const GetSupportedVersionsRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Identity, GetSupportedVersions),
-      request);
+      request));
 }
 
 
 Future<GetPluginInfoResponse> Client::GetPluginInfo(
     const GetPluginInfoRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Identity, GetPluginInfo),
-      request);
+      request));
 }
 
 
 Future<CreateVolumeResponse> Client::CreateVolume(
     const CreateVolumeRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, CreateVolume),
-      request);
+      request));
 }
 
 
 Future<DeleteVolumeResponse> Client::DeleteVolume(
     const DeleteVolumeRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, DeleteVolume),
-      request);
+      request));
 }
 
 
 Future<ControllerPublishVolumeResponse> Client::ControllerPublishVolume(
     const ControllerPublishVolumeRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, ControllerPublishVolume),
-      request);
+      request));
 }
 
 
 Future<ControllerUnpublishVolumeResponse> Client::ControllerUnpublishVolume(
     const ControllerUnpublishVolumeRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, ControllerUnpublishVolume),
-      request);
+      request));
 }
 
 
 Future<ValidateVolumeCapabilitiesResponse> Client::ValidateVolumeCapabilities(
     const ValidateVolumeCapabilitiesRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, ValidateVolumeCapabilities),
-      request);
+      request));
 }
 
 
 Future<ListVolumesResponse> Client::ListVolumes(
     const ListVolumesRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, ListVolumes),
-      request);
+      request));
 }
 
 
 Future<GetCapacityResponse> Client::GetCapacity(
     const GetCapacityRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, GetCapacity),
-      request);
+      request));
 }
 
 
 Future<ControllerGetCapabilitiesResponse> Client::ControllerGetCapabilities(
     const ControllerGetCapabilitiesRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Controller, ControllerGetCapabilities),
-      request);
+      request));
 }
 
 
 Future<NodePublishVolumeResponse> Client::NodePublishVolume(
     const NodePublishVolumeRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Node, NodePublishVolume),
-      request);
+      request));
 }
 
 
 Future<NodeUnpublishVolumeResponse> Client::NodeUnpublishVolume(
     const NodeUnpublishVolumeRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Node, NodeUnpublishVolume),
-      request);
+      request));
 }
 
 
 Future<GetNodeIDResponse> Client::GetNodeID(
     const GetNodeIDRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Node, GetNodeID),
-      request);
+      request));
 }
 
 
 Future<ProbeNodeResponse> Client::ProbeNode(
     const ProbeNodeRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Node, ProbeNode),
-      request);
+      request));
 }
 
 
 Future<NodeGetCapabilitiesResponse> Client::NodeGetCapabilities(
     const NodeGetCapabilitiesRequest& request)
 {
-  return runtime.call(
+  return validate(runtime.call(
       channel,
       GRPC_RPC(Node, NodeGetCapabilities),
-      request);
+      request));
 }
 
 } // namespace csi {
