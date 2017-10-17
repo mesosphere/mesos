@@ -59,16 +59,25 @@ message Call {
     GET_AGENT = 20;         // Retrieves the agent information.
 
     // Calls for managing nested containers underneath an executor's container.
-    LAUNCH_NESTED_CONTAINER = 14;  // See 'LaunchNestedContainer' below.
-    WAIT_NESTED_CONTAINER = 15;    // See 'WaitNestedContainer' below.
-    KILL_NESTED_CONTAINER = 16;    // See 'KillNestedContainer' below.
-    REMOVE_NESTED_CONTAINER = 21;  // See 'RemoveNestedContainer' below.
+    // These calls are deprecated in favor of the LAUNCH/WAIT/KILL/REMOVE calls
+    // for standalone or nested containers below.
+    LAUNCH_NESTED_CONTAINER = 14 [deprecated = true];
+    WAIT_NESTED_CONTAINER = 15 [deprecated = true];
+    KILL_NESTED_CONTAINER = 16 [deprecated = true];
+    REMOVE_NESTED_CONTAINER = 21 [deprecated = true];
 
     // See 'LaunchNestedContainerSession' below.
     LAUNCH_NESTED_CONTAINER_SESSION = 17;
 
     ATTACH_CONTAINER_INPUT = 18; // See 'AttachContainerInput' below.
     ATTACH_CONTAINER_OUTPUT = 19; // see 'AttachContainerOutput' below.
+
+    // Calls for managing standalone containers
+    // or containers nested underneath an executor's container.
+    LAUNCH_CONTAINER = 22; // See 'LaunchContainer' below.
+    WAIT_CONTAINER = 23;   // See 'WaitContainer' below.
+    KILL_CONTAINER = 24;   // See 'KillContainer' below.
+    REMOVE_CONTAINER = 25; // See 'RemoveContainer' below.
   }
 
   // Provides a snapshot of the current metrics tracked by the agent.
@@ -175,19 +184,90 @@ message Call {
     required ContainerID container_id = 1;
   }
 
+  // Launches a either a "standalone" container on this agent
+  // or a nested container within another tree of containers.
+  //
+  // A standalone container is launched by specifying a ContainerID
+  // with no parent. Standalone containers bypass the normal offer cycle
+  // between the master and agent. Unlike other containers, a standalone
+  // container does not have an executor or any tasks. This means the
+  // standalone container does not report back to Mesos or any framework
+  // and must be supervised separately.
+  //
+  // A nested container is launched by specifying a ContainerID with
+  // another existing container (including standalone containers)
+  // as the parent.
+  //
+  // Returns 200 OK if the new container launch succeeds.
+  // Returns 202 Accepted if the requested ContainerID is already in use
+  //   by a standalone or nested container.
+  // Returns 400 Bad Request if the container launch fails.
+  message LaunchContainer {
+    // NOTE: Some characters cannot be used in the ID. All characters
+    // must be valid filesystem path characters.  In addition, '/' and '.'
+    // are reserved.
+    required ContainerID container_id = 1;
+
+    optional CommandInfo command = 2;
+
+    // NOTE: Nested containers may not specify resources and instead
+    // share resources with its parent container.
+    //
+    // TODO(josephw): These resources are purely used for isolation
+    // and are not accounted for by the Mesos master (if connected).
+    // It is the caller's responsibility to ensure that resources are
+    // not overcommitted (e.g. CPU and memory) or conflicting (e.g. ports
+    // and volumes). Once there is support for preempting tasks and a
+    // way to update the resources advertised by the agent, these standalone
+    // container resources should be accounted for by the master.
+    repeated Resource resources = 3;
+
+    optional ContainerInfo container = 4;
+  }
+
+  // Waits for the standalone or nested container to terminate
+  // and returns the exit status.
+  message WaitContainer {
+    required ContainerID container_id = 1;
+  }
+
+  // Kills the standalone or nested container. The signal to be sent
+  // to the container can be specified in the 'signal' field.
+  message KillContainer {
+    required ContainerID container_id = 1;
+
+    // Defaults to SIGKILL.
+    optional int32 signal = 2;
+  }
+
+  // Removes a standalone or nested container and its artifacts
+  // (runtime and sandbox directories).
+  message RemoveContainer {
+    required ContainerID container_id = 1;
+  }
+
   optional Type type = 1;
 
   optional GetMetrics get_metrics = 2;
   optional SetLoggingLevel set_logging_level = 3;
   optional ListFiles list_files = 4;
   optional ReadFile read_file = 5;
-  optional LaunchNestedContainer launch_nested_container = 6;
-  optional WaitNestedContainer wait_nested_container = 7;
-  optional KillNestedContainer kill_nested_container = 8;
-  optional RemoveNestedContainer remove_nested_container = 12;
+
+  optional LaunchNestedContainer launch_nested_container = 6
+    [deprecated = true];
+
+  optional WaitNestedContainer wait_nested_container = 7 [deprecated = true];
+  optional KillNestedContainer kill_nested_container = 8 [deprecated = true];
+  optional RemoveNestedContainer remove_nested_container = 12
+    [deprecated = true];
+
   optional LaunchNestedContainerSession launch_nested_container_session = 9;
   optional AttachContainerInput attach_container_input = 10;
   optional AttachContainerOutput attach_container_output = 11;
+  optional LaunchContainer launch_container = 13;
+  optional WaitContainer wait_container = 14;
+  optional KillContainer kill_container = 15;
+  optional RemoveContainer remove_container = 16;
 }
 
 
@@ -217,7 +297,8 @@ message Response {
     GET_TASKS = 12;                // See 'GetTasks' below.
     GET_AGENT = 14;                // See 'GetAgent' below.
 
-    WAIT_NESTED_CONTAINER = 13;    // See 'WaitNestedContainer' below.
+    WAIT_NESTED_CONTAINER = 13 [deprecated = true];
+    WAIT_CONTAINER = 15;           // See 'WaitContainer' below.
   }
 
   // `healthy` would be true if the agent is healthy. Delayed responses are also
@@ -353,6 +434,11 @@ message Response {
     optional string message = 5;
   }
 
+  // Returns termination information about the standalone or nested container.
+  message WaitContainer {
+    optional int32 exit_status = 1;
+  }
+
   optional Type type = 1;
 
   optional GetHealth get_health = 2;
@@ -369,6 +455,7 @@ message Response {
   optional GetTasks get_tasks = 13;
   optional GetAgent get_agent = 15;
   optional WaitNestedContainer wait_nested_container = 14;
+  optional WaitContainer wait_container = 16;
 }
 
 
