@@ -147,6 +147,8 @@ Metrics::Metrics(const Master& master)
         "master/messages_exited_executor"),
     messages_update_slave(
         "master/messages_update_slave"),
+    messages_offer_operation_update(
+        "master/messages_offer_operation_update"),
     messages_authenticate(
         "master/messages_authenticate"),
     valid_framework_to_executor_messages(
@@ -257,6 +259,7 @@ Metrics::Metrics(const Master& master)
   process::metrics::add(messages_status_update);
   process::metrics::add(messages_exited_executor);
   process::metrics::add(messages_update_slave);
+  process::metrics::add(messages_offer_operation_update);
 
   // Messages from both schedulers and slaves.
   process::metrics::add(messages_authenticate);
@@ -403,6 +406,7 @@ Metrics::~Metrics()
   process::metrics::remove(messages_status_update);
   process::metrics::remove(messages_exited_executor);
   process::metrics::remove(messages_update_slave);
+  process::metrics::remove(messages_offer_operation_update);
 
   // Messages from both schedulers and slaves.
   process::metrics::remove(messages_authenticate);
