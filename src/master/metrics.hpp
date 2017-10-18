@@ -148,6 +148,7 @@ struct Metrics
   process::metrics::Counter messages_status_update;
   process::metrics::Counter messages_exited_executor;
   process::metrics::Counter messages_update_slave;
+  process::metrics::Counter messages_offer_operation_update;
 
   // Messages from both schedulers and slaves.
   process::metrics::Counter messages_authenticate;
