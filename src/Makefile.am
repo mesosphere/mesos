@@ -758,7 +758,8 @@ resourceproviderdir = $(pkgincludedir)/resource_provider
 
 resourceprovider_HEADERS =						\
   $(top_srcdir)/include/mesos/resource_provider/resource_provider.hpp	\
-  $(top_srcdir)/include/mesos/resource_provider/resource_provider.proto
+  $(top_srcdir)/include/mesos/resource_provider/resource_provider.proto	\
+  $(top_srcdir)/include/mesos/resource_provider/type_utils.hpp
 
 nodist_resourceprovider_HEADERS =					\
   ../include/mesos/resource_provider/resource_provider.pb.h
@@ -1005,6 +1006,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   resource_provider/local.cpp						\
   resource_provider/manager.cpp						\
   resource_provider/registrar.cpp					\
+  resource_provider/type_utils.cpp					\
   resource_provider/validation.cpp					\
   sched/sched.cpp							\
   scheduler/scheduler.cpp						\
