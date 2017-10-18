@@ -706,6 +706,22 @@ ostream& operator<<(ostream& stream, const Secret::Type& secretType)
 }
 
 
+ostream& operator<<(
+    ostream& stream,
+    const Offer::Operation::Type& operationType)
+{
+  return stream << Offer::Operation::Type_Name(operationType);
+}
+
+
+ostream& operator<<(
+    ostream& stream,
+    const Resource::DiskInfo::Source::Type& sourceType)
+{
+  return stream << Resource::DiskInfo::Source::Type_Name(sourceType);
+}
+
+
 ostream& operator<<(ostream& stream, const hashmap<string, string>& map)
 {
   return stream << stringify(map);
