@@ -742,6 +742,23 @@ ContainerID getRootContainerId(const ContainerID& containerId)
   return rootContainerId;
 }
 
+
+Resources getConsumedResources(const Offer::Operation& operation)
+{
+  switch (operation.type()) {
+    case Offer::Operation::CREATE_VOLUME:
+      return operation.create_volume().source();
+    case Offer::Operation::DESTROY_VOLUME:
+      return operation.destroy_volume().volume();
+    case Offer::Operation::CREATE_BLOCK:
+      return operation.create_block().source();
+    case Offer::Operation::DESTROY_BLOCK:
+      return operation.destroy_block().block();
+    default:
+      LOG(FATAL) << "Unsupported operation " << operation.type();
+  }
+}
+
 namespace slave {
 
 bool operator==(const Capabilities& left, const Capabilities& right)

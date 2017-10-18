@@ -184,6 +184,9 @@ FileInfo createFileInfo(const std::string& path, const struct stat& s);
 
 ContainerID getRootContainerId(const ContainerID& containerId);
 
+
+Resources getConsumedResources(const Offer::Operation& operation);
+
 namespace slave {
 
 // TODO(bmahler): Store the repeated field within this so that we
