@@ -16,6 +16,8 @@
 
 #include "resource_provider/storage/provider.hpp"
 
+#include <google/protobuf/util/json_util.h>
+
 #include <glog/logging.h>
 
 #include <process/after.hpp>
@@ -56,6 +58,8 @@ namespace http = process::http;
 using std::list;
 using std::queue;
 using std::string;
+
+using google::protobuf::util::JsonStringToMessage;
 
 using process::Break;
 using process::Continue;
@@ -192,6 +196,8 @@ private:
   Future<Nothing> prepareControllerPlugin();
   Future<Nothing> prepareNodePlugin();
   Future<Nothing> importResources();
+  Future<Nothing> publishResource(const Resource& resource);
+  Future<Nothing> unpublishResource(const Resource& resource);
 
   const http::URL url;
   const string workDir;
@@ -392,6 +398,29 @@ void StorageLocalResourceProviderProcess::operation(
 
 void StorageLocalResourceProviderProcess::publish(const Event::Publish& publish)
 {
+  list<Future<Nothing>> futures;
+
+  foreach (const Resource& resource, publish.resources()) {
+    futures.push_back(publishResource(resource));
+  }
+
+  // TODO(chhsiao): Return a nack for failed resource publication.
+  // TODO(chhsiao): Capture `publish` by forwarding once we switch to C++14.
+  collect(futures)
+    .onReady(defer(self(), [=](const list<Nothing>& future) {
+      const string message =
+        "Failed to acknowledge resource publication for resource provider " +
+        stringify(info.id());
+
+      Call call;
+      call.set_type(Call::PUBLISHED);
+      call.mutable_resource_provider_id()->CopyFrom(info.id());
+      call.mutable_published()->set_uuid(publish.uuid());
+
+      driver->send(evolve(call))
+        .onFailed(defer(self(), &Self::fatal, message, lambda::_1))
+        .onDiscarded(defer(self(), &Self::fatal, message, "future discarded"));
+    }));
 }
 
 
@@ -822,6 +851,224 @@ Future<Nothing> StorageLocalResourceProviderProcess::importResources()
 
           return Nothing();
         }));
+    }));
+}
+
+
+Future<Nothing> StorageLocalResourceProviderProcess::publishResource(
+    const Resource& resource)
+{
+  // TODO(chhsiao): Make this a state machine and checkpoint the state!
+  // TODO(chhsiao): Check if the resource is in the checkpointed resources.
+
+  // NOTE: This can only be called after `prepareController` and
+  // `prepareNode`.
+  CHECK_SOME(controllerCapabilities);
+  CHECK_SOME(nodeCapabilities);
+  CHECK_SOME(nodeId);
+
+  CHECK(resource.has_disk());
+  const Resource::DiskInfo& disk = resource.disk();
+
+  CHECK(disk.has_source());
+  CHECK(disk.source().has_id());
+
+  // TODO(chhsiao): Add BLOCK support.
+  if (disk.source().type() == Resource::DiskInfo::Source::BLOCK) {
+    return  Failure("BLOCK disk resource is not supported.");
+  }
+
+  Option<string> targetPath;
+  if (disk.source().type() == Resource::DiskInfo::Source::PATH) {
+    // We expect `disk.source.path.root` relative to agent work dir.
+    CHECK(disk.source().has_path());
+    CHECK(disk.source().path().has_root());
+    CHECK(!path::absolute(disk.source().path().root()));
+    targetPath = path::join(workDir, disk.source().path().root());
+  } else if (disk.source().type() == Resource::DiskInfo::Source::MOUNT) {
+    // We expect `disk.source.mount.root` relative to agent work dir.
+    CHECK(disk.source().has_mount());
+    CHECK(disk.source().mount().has_root());
+    CHECK(!path::absolute(disk.source().mount().root()));
+    targetPath = path::join(workDir, disk.source().mount().root());
+  }
+  CHECK_SOME(targetPath);
+
+  // Pick the first resource capability from those we used to create
+  // the resource.
+  // TODO(chhsiao): Get the resource capability based on the profile.
+  Option<csi::VolumeCapability> volumeCapability;
+  if (disk.source().type() == Resource::DiskInfo::Source::PATH ||
+      disk.source().type() == Resource::DiskInfo::Source::MOUNT) {
+    foreach (const auto& capability, nodeCapabilities->mountVolumes) {
+      if (contains(controllerCapabilities->mountVolumes, capability)) {
+        volumeCapability = capability;
+        break;
+      }
+    }
+  } else if (disk.source().type() == Resource::DiskInfo::Source::BLOCK) {
+    foreach (const auto& capability, nodeCapabilities->blockVolumes) {
+      if (contains(controllerCapabilities->blockVolumes, capability)) {
+        volumeCapability = capability;
+        break;
+      }
+    }
+  }
+  if (volumeCapability.isNone()) {
+    return Failure("Failed to select a resource capability");
+  }
+
+  // NOTE: We create the mount point first, so the we don't need to
+  // introduce an extra intermediate state between
+  // `ControllerPublishVolume` and `NodePublishVolume`.
+  Try<Nothing> mkdir = os::mkdir(targetPath.get());
+  if (mkdir.isError()) {
+    return Failure("Failed to create target path '" + targetPath.get() + "'");
+  }
+
+  return getService(info.storage().controller_plugin())
+    .then(defer(self(), [=](csi::Client client)
+        -> Future<csi::ControllerPublishVolumeResponse> {
+      if (controllerCapabilities->publishUnpublishVolume) {
+        // TODO(chhsiao): Use ID string once we update the CSI spec.
+        // TODO(chhsiao): Set the readonly flag properly.
+        csi::ControllerPublishVolumeRequest request;
+        request.mutable_version()->CopyFrom(csiVersion);
+        JsonStringToMessage(
+            resource.disk().source().id(), request.mutable_volume_id());
+        if (resource.disk().source().has_metadata()) {
+          *request.mutable_volume_metadata() = csi::labelsToVolumeMetadata(
+              resource.disk().source().metadata()).get();
+        }
+        if (nodeId->has_node_id()) {
+          request.mutable_node_id()->CopyFrom(nodeId->node_id());
+        }
+        request.set_readonly(false);
+
+        return client.ControllerPublishVolume(request);
+      }
+
+      return csi::ControllerPublishVolumeResponse::default_instance();
+    }))
+    .then(defer(self(), [=](
+        const csi::ControllerPublishVolumeResponse& response) {
+      return getService(info.storage().node_plugin())
+        .then(defer(self(), [=](csi::Client client) {
+          // TODO(chhsiao): Use ID string once we update the CSI spec.
+          // TODO(chhsiao): Set the readonly flag properly.
+          csi::NodePublishVolumeRequest request;
+          request.mutable_version()->CopyFrom(csiVersion);
+          JsonStringToMessage(
+              resource.disk().source().id(), request.mutable_volume_id());
+          if (resource.disk().source().has_metadata()) {
+            *request.mutable_volume_metadata() = csi::labelsToVolumeMetadata(
+                resource.disk().source().metadata()).get();
+          }
+          if (response.has_result() &&
+              response.result().has_publish_volume_info()) {
+            request.mutable_publish_volume_info()->CopyFrom(
+                response.result().publish_volume_info());
+          }
+          request.set_target_path(targetPath.get());
+          request.mutable_volume_capability()->CopyFrom(volumeCapability.get());
+          request.set_readonly(false);
+
+          return client.NodePublishVolume(request);
+        }));
+    }))
+    .then([] { return Nothing(); });
+}
+
+
+Future<Nothing> StorageLocalResourceProviderProcess::unpublishResource(
+    const Resource& resource)
+{
+  // TODO(chhsiao): Make this a state machine and checkpoint the state!
+
+  // NOTE: This can only be called after `prepareController` and
+  // `prepareNode`.
+  CHECK_SOME(controllerCapabilities);
+  CHECK_SOME(nodeId);
+
+  CHECK(resource.has_disk());
+  const Resource::DiskInfo& disk = resource.disk();
+
+  CHECK(disk.has_source());
+  CHECK(disk.source().has_id());
+
+  // TODO(chhsiao): Add BLOCK support.
+  if (disk.source().type() == Resource::DiskInfo::Source::BLOCK) {
+    return  Failure("BLOCK disk resource is not supported.");
+  }
+
+  Option<string> targetPath;
+  if (disk.source().type() == Resource::DiskInfo::Source::PATH) {
+    // We expect `disk.source.path.root` relative to agent work dir.
+    CHECK(disk.source().has_path());
+    CHECK(disk.source().path().has_root());
+    CHECK(!path::absolute(disk.source().path().root()));
+    targetPath = path::join(workDir, disk.source().path().root());
+  } else if (disk.source().type() == Resource::DiskInfo::Source::MOUNT) {
+    // We expect `disk.source.mount.root` relative to agent work dir.
+    CHECK(disk.source().has_mount());
+    CHECK(disk.source().mount().has_root());
+    CHECK(!path::absolute(disk.source().mount().root()));
+    targetPath = path::join(workDir, disk.source().mount().root());
+  }
+  CHECK_SOME(targetPath);
+
+  if (!os::exists(targetPath.get())) {
+    // The resource has not been published yet.
+    return Nothing();
+  }
+
+  return getService(info.storage().node_plugin())
+    .then(defer(self(), [=](csi::Client client) {
+      // TODO(chhsiao): Use ID string once we update the CSI spec.
+      csi::NodeUnpublishVolumeRequest request;
+      request.mutable_version()->CopyFrom(csiVersion);
+      JsonStringToMessage(
+          resource.disk().source().id(), request.mutable_volume_id());
+      if (resource.disk().source().has_metadata()) {
+        *request.mutable_volume_metadata() = csi::labelsToVolumeMetadata(
+            resource.disk().source().metadata()).get();
+      }
+      request.set_target_path(targetPath.get());
+
+      return client.NodeUnpublishVolume(request);
+    }))
+    .then(defer(self(), [=] {
+      return getService(info.storage().controller_plugin())
+        .then(defer(self(), [=](csi::Client client)
+            -> Future<csi::ControllerUnpublishVolumeResponse> {
+          if (controllerCapabilities->publishUnpublishVolume) {
+            // TODO(chhsiao): Use ID string once we update the CSI spec.
+            csi::ControllerUnpublishVolumeRequest request;
+            request.mutable_version()->CopyFrom(csiVersion);
+            JsonStringToMessage(
+                resource.disk().source().id(), request.mutable_volume_id());
+            if (resource.disk().source().has_metadata()) {
+              *request.mutable_volume_metadata() = csi::labelsToVolumeMetadata(
+                  resource.disk().source().metadata()).get();
+            }
+            if (nodeId->has_node_id()) {
+              request.mutable_node_id()->CopyFrom(nodeId->node_id());
+            }
+
+            return client.ControllerUnpublishVolume(request);
+          }
+
+          return csi::ControllerUnpublishVolumeResponse::default_instance();
+        }));
+    }))
+    .then(defer(self(), [=]() -> Future<Nothing> {
+      Try<Nothing> rmdir = os::rmdir(targetPath.get(), false);
+      if (rmdir.isError()) {
+        return Failure(
+            "Failed to remove target path '" + targetPath.get() + "'");
+      }
+
+      return Nothing();
     }));
 }
 
