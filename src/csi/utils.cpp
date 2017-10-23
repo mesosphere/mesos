@@ -16,10 +16,13 @@
 
 #include "csi/utils.hpp"
 
+#include <algorithm>
+
 #include <google/protobuf/util/json_util.h>
 
 #include <stout/strings.hpp>
 
+using std::equal;
 using std::ostream;
 using std::string;
 
@@ -35,6 +38,39 @@ bool operator==(const csi::Version& left, const csi::Version& right)
 }
 
 
+bool operator==(
+    const VolumeCapability::BlockVolume& left,
+    const VolumeCapability::BlockVolume& right)
+{
+  return true;
+}
+
+
+bool operator==(
+    const VolumeCapability::MountVolume& left,
+    const VolumeCapability::MountVolume& right)
+{
+  return left.fs_type() == right.fs_type() &&
+         left.mount_flags().size() == right.mount_flags().size() &&
+         equal(
+             left.mount_flags().begin(),
+             left.mount_flags().end(),
+             right.mount_flags().begin());
+}
+
+
+bool operator==(const VolumeCapability& left, const VolumeCapability& right)
+{
+  if (left.has_block() && right.has_block()) {
+    return left.block() == right.block();
+  } else if (left.has_mount() && right.has_mount()) {
+    return left.mount() == right.mount();
+  }
+
+  return false;
+}
+
+
 ostream& operator<<(ostream& stream, const csi::Version& version)
 {
   return stream << strings::join(
@@ -42,6 +78,28 @@ ostream& operator<<(ostream& stream, const csi::Version& version)
       version.major(),
       version.minor(),
       version.patch());
+}
+
+
+ostream& operator<<(
+    ostream& stream,
+    const GetPluginInfoResponse::Result& result)
+{
+  // NOTE: We use Google's JSON utility functions for proto3.
+  string output;
+  MessageToJsonString(result, &output);
+  return stream << output;
+}
+
+
+ostream& operator<<(ostream& stream, const VolumeID& volumeId)
+{
+  // NOTE: We use Google's JSON utility functions for proto3.
+  // TODO(chhsiao): Output the ID string once we switch to the lastest
+  // CSI spec.
+  string output;
+  MessageToJsonString(volumeId, &output);
+  return stream << output;
 }
 
 } // namespace csi {
@@ -61,6 +119,21 @@ Labels volumeMetadataToLabels(const VolumeMetadata& metadata)
   }
 
   return labels;
+}
+
+
+Try<VolumeMetadata> labelsToVolumeMetadata(const Labels& labels)
+{
+  VolumeMetadata metadata;
+
+  foreach (const Label& label, labels.labels()) {
+    if (metadata.values().count(label.key())) {
+      return ::Error("Repeated key '" + label.key() + "' in labels");
+    }
+    (*metadata.mutable_values())[label.key()] = label.value();
+  }
+
+  return metadata;
 }
 
 } // namespace csi {

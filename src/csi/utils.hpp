@@ -32,6 +32,27 @@ namespace csi {
 bool operator==(const csi::Version& left, const csi::Version& right);
 std::ostream& operator<<(std::ostream& stream, const csi::Version& version);
 
+
+bool operator==(
+    const VolumeCapability::BlockVolume& left,
+    const VolumeCapability::BlockVolume& right);
+
+
+bool operator==(
+    const VolumeCapability::MountVolume& left,
+    const VolumeCapability::MountVolume& right);
+
+
+bool operator==(const VolumeCapability& left, const VolumeCapability& right);
+
+
+std::ostream& operator<<(
+    std::ostream& stream,
+    const GetPluginInfoResponse::Result& result);
+
+
+std::ostream& operator<<(std::ostream& stream, const VolumeID& volumeId);
+
 } // namespace csi {
 
 
@@ -108,6 +129,12 @@ struct NodeCapabilities
   google::protobuf::RepeatedPtrField<VolumeCapability> blockVolumes;
   google::protobuf::RepeatedPtrField<VolumeCapability> mountVolumes;
 };
+
+
+Labels volumeMetadataToLabels(const VolumeMetadata& metadata);
+
+
+Try<VolumeMetadata> labelsToVolumeMetadata(const Labels& labels);
 
 } // namespace csi {
 } // namespace mesos {
