@@ -233,6 +233,31 @@ Try<MountInfoTable> MountInfoTable::read(
 }
 
 
+Try<MountInfoTable::Entry> MountInfoTable::findByTarget(
+    const std::string& target)
+{
+  Try<MountInfoTable> table = read(None(), true);
+  if (table.isError()) {
+    return Error("Failed to get mount table: " + table.error());
+  }
+
+  // Trying to find the mount entry that contains the 'target'. We
+  // achieve that by doing a reverse traverse of the mount table to
+  // find the first entry whose target is a prefix of the specified
+  // 'target'.
+  foreach (const Entry& entry, adaptor::reverse(table->entries)) {
+    if (strings::startsWith(target, entry.target)) {
+      return entry;
+    }
+  }
+
+  // It's unlikely that we cannot find the immediate parent because
+  // '/' is always mounted and will be the immediate parent if no
+  // other mounts found in between.
+  return Error("Not found");
+}
+
+
 Try<MountInfoTable::Entry> MountInfoTable::Entry::parse(const string& s)
 {
   MountInfoTable::Entry entry;
