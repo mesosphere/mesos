@@ -19,6 +19,8 @@
 
 #include <string>
 
+#include <mesos/mesos.hpp>
+
 #include <process/http.hpp>
 #include <process/owned.hpp>
 
@@ -52,12 +54,17 @@ public:
   LocalResourceProviderDaemon& operator=(
       const LocalResourceProviderDaemon& other) = delete;
 
+  Try<Nothing> start(const SlaveID& slaveId);
+
 private:
   LocalResourceProviderDaemon(
-      const process::http::URL& url,
-      const std::string& workDir,
-      const Option<std::string>& configDir);
+      const process::http::URL& _url,
+      const std::string& _workDir,
+      const Option<std::string>& _configDir);
 
+  const process::http::URL url;
+  const std::string workDir;
+  const Option<std::string> configDir;
   process::Owned<LocalResourceProviderDaemonProcess> process;
 };
 

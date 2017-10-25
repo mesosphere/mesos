@@ -57,11 +57,13 @@ public:
   LocalResourceProviderDaemonProcess(
       const process::http::URL& _url,
       const string& _workDir,
-      const Option<string>& _configDir)
+      const string& _configDir,
+      const SlaveID& _slaveId)
     : ProcessBase(process::ID::generate("local-resource-provider-daemon")),
       url(_url),
       workDir(_workDir),
-      configDir(_configDir) {}
+      configDir(_configDir),
+      slaveId(_slaveId) {}
 
 protected:
   void initialize() override;
@@ -82,7 +84,8 @@ private:
 
   const process::http::URL url;
   const string workDir;
-  const Option<string> configDir;
+  const string configDir;
+  const SlaveID slaveId;
 
   vector<Provider> providers;
 };
@@ -90,18 +93,14 @@ private:
 
 void LocalResourceProviderDaemonProcess::initialize()
 {
-  if (configDir.isNone()) {
-    return;
-  }
-
-  Try<list<string>> entries = os::ls(configDir.get());
+  Try<list<string>> entries = os::ls(configDir);
   if (entries.isError()) {
     LOG(ERROR) << "Unable to list the resource provider directory '"
-               << configDir.get() << "': " << entries.error();
+               << configDir << "': " << entries.error();
   }
 
   foreach (const string& entry, entries.get()) {
-    const string path = path::join(configDir.get(), entry);
+    const string path = path::join(configDir, entry);
 
     if (os::stat::isdir(path)) {
       continue;
@@ -179,19 +178,44 @@ Try<Owned<LocalResourceProviderDaemon>> LocalResourceProviderDaemon::create(
 
 
 LocalResourceProviderDaemon::LocalResourceProviderDaemon(
-    const process::http::URL& url,
-    const string& workDir,
-    const Option<string>& configDir)
-  : process(new LocalResourceProviderDaemonProcess(url, workDir, configDir))
+    const process::http::URL& _url,
+    const string& _workDir,
+    const Option<string>& _configDir)
+  : url(_url),
+    workDir(_workDir),
+    configDir(_configDir)
 {
-  spawn(CHECK_NOTNULL(process.get()));
 }
 
 
 LocalResourceProviderDaemon::~LocalResourceProviderDaemon()
 {
-  terminate(process.get());
-  wait(process.get());
+  if (process.get() != nullptr) {
+    terminate(process.get());
+    wait(process.get());
+  }
+}
+
+
+Try<Nothing> LocalResourceProviderDaemon::start(const SlaveID& slaveId)
+{
+  if (configDir.isNone()) {
+    return Nothing();
+  }
+
+  if (process.get() != nullptr) {
+    return Error("Daemon is already started");
+  }
+
+  process.reset(new LocalResourceProviderDaemonProcess(
+      url,
+      workDir,
+      configDir.get(),
+      slaveId));
+
+  spawn(CHECK_NOTNULL(process.get()));
+
+  return Nothing();
 }
 
 } // namespace internal {
