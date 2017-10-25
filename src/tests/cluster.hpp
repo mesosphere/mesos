@@ -54,6 +54,8 @@
 #include "master/flags.hpp"
 #include "master/master.hpp"
 
+#include "resource_provider/manager.hpp"
+
 #include "slave/constants.hpp"
 #include "slave/flags.hpp"
 #include "slave/gc.hpp"
@@ -164,7 +166,8 @@ public:
       const Option<mesos::slave::ResourceEstimator*>& resourceEstimator =
         None(),
       const Option<mesos::slave::QoSController*>& qosController = None(),
-      const Option<Authorizer*>& authorizer = None());
+      const Option<Authorizer*>& authorizer = None(),
+      const Option<ResourceProviderManager*>& resourceProviderManager = None());
 
   ~Slave();
 
@@ -221,6 +224,7 @@ private:
   process::Owned<mesos::slave::QoSController> qosController;
   process::Owned<mesos::slave::ResourceEstimator> resourceEstimator;
   process::Owned<slave::StatusUpdateManager> statusUpdateManager;
+  process::Owned<ResourceProviderManager> resourceProviderManager;
 
   // Indicates whether or not authorization callbacks were set when this agent
   // was constructed.

@@ -39,6 +39,8 @@
 
 #include "messages/messages.hpp"
 
+#include "resource_provider/manager.hpp"
+
 #include "slave/slave.hpp"
 
 using ::testing::_;
@@ -111,7 +113,8 @@ public:
       slave::Containerizer* containerizer,
       const Option<mesos::slave::QoSController*>& qosController = None(),
       const Option<mesos::Authorizer*>& authorizer = None(),
-      const Option<mesos::SecretGenerator*>& mockSecretGenerator = None());
+      const Option<mesos::SecretGenerator*>& mockSecretGenerator = None(),
+      const Option<ResourceProviderManager*>& resourceProviderManager = None());
 
   virtual ~MockSlave();
 
@@ -217,6 +220,7 @@ private:
   MockResourceEstimator resourceEstimator;
   MockQoSController qosController;
   slave::StatusUpdateManager* statusUpdateManager;
+  ResourceProviderManager resourceProviderManager;
 
   // Set to the base class `secretGenerator` in `initialize()`. After
   // `initialize()` has executed, this will be `None()`.

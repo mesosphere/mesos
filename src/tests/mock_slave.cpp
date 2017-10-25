@@ -109,7 +109,8 @@ MockSlave::MockSlave(
     slave::Containerizer* containerizer,
     const Option<mesos::slave::QoSController*>& _qosController,
     const Option<mesos::Authorizer*>& authorizer,
-    const Option<mesos::SecretGenerator*>& _mockSecretGenerator)
+    const Option<mesos::SecretGenerator*>& _mockSecretGenerator,
+    const Option<ResourceProviderManager*>& _resourceProviderManager)
   : slave::Slave(
         process::ID::generate("slave"),
         flags,
@@ -120,7 +121,9 @@ MockSlave::MockSlave(
         statusUpdateManager = new slave::StatusUpdateManager(flags),
         &resourceEstimator,
         _qosController.isSome() ? _qosController.get() : &qosController,
-        authorizer),
+        authorizer,
+        _resourceProviderManager.isSome()
+          ? _resourceProviderManager.get() : &resourceProviderManager),
     files(slave::READONLY_HTTP_AUTHENTICATION_REALM),
     mockSecretGenerator(_mockSecretGenerator)
 {

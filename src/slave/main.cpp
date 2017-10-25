@@ -67,6 +67,8 @@
 
 #include "module/manager.hpp"
 
+#include "resource_provider/manager.hpp"
+
 #include "slave/gc.hpp"
 #include "slave/slave.hpp"
 #include "slave/status_update_manager.hpp"
@@ -551,6 +553,9 @@ int main(int argc, char** argv)
                        << qosController.error();
   }
 
+  ResourceProviderManager* resourceProviderManager =
+    new ResourceProviderManager();
+
   Slave* slave = new Slave(
       id,
       flags,
@@ -561,12 +566,15 @@ int main(int argc, char** argv)
       statusUpdateManager,
       resourceEstimator.get(),
       qosController.get(),
-      authorizer_);
+      authorizer_,
+      resourceProviderManager);
 
   process::spawn(slave);
   process::wait(slave->self());
 
   delete slave;
+
+  delete resourceProviderManager;
 
   delete qosController.get();
 

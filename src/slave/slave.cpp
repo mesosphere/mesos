@@ -193,7 +193,8 @@ Slave::Slave(const string& id,
              StatusUpdateManager* _statusUpdateManager,
              ResourceEstimator* _resourceEstimator,
              QoSController* _qosController,
-             const Option<Authorizer*>& _authorizer)
+             const Option<Authorizer*>& _authorizer,
+             ResourceProviderManager* _resourceProviderManager)
   : ProcessBase(id),
     state(RECOVERING),
     flags(_flags),
@@ -223,6 +224,7 @@ Slave::Slave(const string& id,
     resourceEstimator(_resourceEstimator),
     qosController(_qosController),
     authorizer(_authorizer),
+    resourceProviderManager(_resourceProviderManager),
     resourceVersions({{Option<ResourceProviderID>::none(), UUID::random()}}),
     secretGenerator(nullptr) {}
 
@@ -752,7 +754,7 @@ void Slave::initialize()
         [this](const http::Request& request,
                const Option<Principal>& principal) {
           logRequest(request);
-          return resourceProviderManager.api(request, principal);
+          return resourceProviderManager->api(request, principal);
         });
 
   // TODO(ijimenez): Remove this endpoint at the end of the
@@ -3726,7 +3728,7 @@ void Slave::applyOfferOperation(const ApplyOfferOperationMessage& message)
   addOfferOperation(offerOperation);
 
   if (resourceProviderId.isSome()) {
-    resourceProviderManager.applyOfferOperation(message);
+    resourceProviderManager->applyOfferOperation(message);
     return;
   }
 
@@ -6556,7 +6558,7 @@ void Slave::__recover(const Future<Nothing>& future)
 
     if (capabilities.resourceProvider) {
       // Start listening for messages from the resource provider manager.
-      resourceProviderManager.messages().get().onAny(
+      resourceProviderManager->messages().get().onAny(
           defer(self(), &Self::handleResourceProviderMessage, lambda::_1));
     }
 
@@ -6775,7 +6777,7 @@ void Slave::handleResourceProviderMessage(
                << (message.isFailed() ? message.failure() : "future discarded");
 
     // Wait for the next message.
-    resourceProviderManager.messages().get()
+    resourceProviderManager->messages().get()
       .onAny(defer(self(), &Self::handleResourceProviderMessage, lambda::_1));
 
     return;
@@ -6915,7 +6917,7 @@ void Slave::handleResourceProviderMessage(
   }
 
   // Wait for the next message.
-  resourceProviderManager.messages().get()
+  resourceProviderManager->messages().get()
     .onAny(defer(self(), &Self::handleResourceProviderMessage, lambda::_1));
 }
 

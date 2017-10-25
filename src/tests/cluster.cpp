@@ -399,7 +399,8 @@ Try<process::Owned<Slave>> Slave::start(
     const Option<slave::StatusUpdateManager*>& statusUpdateManager,
     const Option<mesos::slave::ResourceEstimator*>& resourceEstimator,
     const Option<mesos::slave::QoSController*>& qosController,
-    const Option<Authorizer*>& providedAuthorizer)
+    const Option<Authorizer*>& providedAuthorizer,
+    const Option<ResourceProviderManager*>& resourceProviderManager)
 {
   process::Owned<Slave> slave(new Slave());
 
@@ -508,6 +509,11 @@ Try<process::Owned<Slave>> Slave::start(
     slave->statusUpdateManager.reset(new slave::StatusUpdateManager(flags));
   }
 
+  // If the resource provider manager is not provided, create a default one.
+  if (resourceProviderManager.isNone()) {
+    slave->resourceProviderManager.reset(new ResourceProviderManager());
+  }
+
   // Inject all the dependencies.
   slave->slave.reset(new slave::Slave(
       id.isSome() ? id.get() : process::ID::generate("slave"),
@@ -519,7 +525,8 @@ Try<process::Owned<Slave>> Slave::start(
       statusUpdateManager.getOrElse(slave->statusUpdateManager.get()),
       resourceEstimator.getOrElse(slave->resourceEstimator.get()),
       qosController.getOrElse(slave->qosController.get()),
-      authorizer));
+      authorizer,
+      resourceProviderManager.getOrElse(slave->resourceProviderManager.get())));
 
   slave->pid = process::spawn(slave->slave.get());
 

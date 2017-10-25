@@ -73,6 +73,8 @@
 
 #include "module/manager.hpp"
 
+#include "resource_provider/manager.hpp"
+
 #include "slave/gc.hpp"
 #include "slave/slave.hpp"
 #include "slave/status_update_manager.hpp"
@@ -147,6 +149,7 @@ static vector<StatusUpdateManager*>* statusUpdateManagers = nullptr;
 static vector<Fetcher*>* fetchers = nullptr;
 static vector<ResourceEstimator*>* resourceEstimators = nullptr;
 static vector<QoSController*>* qosControllers = nullptr;
+static vector<ResourceProviderManager*>* resourceProviderManagers = nullptr;
 
 
 PID<Master> launch(const Flags& flags, Allocator* _allocator)
@@ -355,6 +358,7 @@ PID<Master> launch(const Flags& flags, Allocator* _allocator)
   fetchers = new vector<Fetcher*>();
   resourceEstimators = new vector<ResourceEstimator*>();
   qosControllers = new vector<QoSController*>();
+  resourceProviderManagers = new vector<ResourceProviderManager*>();
 
   vector<UPID> pids;
 
@@ -431,6 +435,8 @@ PID<Master> launch(const Flags& flags, Allocator* _allocator)
 
     qosControllers->push_back(qosController.get());
 
+    resourceProviderManagers->push_back(new ResourceProviderManager());
+
     // Override the default launcher that gets created per agent to
     // 'posix' if we're creating multiple agents because the
     // LinuxLauncher does not support multiple agents on the same host
@@ -475,7 +481,8 @@ PID<Master> launch(const Flags& flags, Allocator* _allocator)
         statusUpdateManagers->back(),
         resourceEstimators->back(),
         qosControllers->back(),
-        authorizer_); // Same authorizer as master.
+        authorizer_, // Same authorizer as master.
+        resourceProviderManagers->back());
 
     slaves[containerizer.get()] = slave;
 
@@ -558,6 +565,15 @@ void shutdown()
 
     delete qosControllers;
     qosControllers = nullptr;
+
+    foreach (
+        ResourceProviderManager* resourceProviderManager,
+        *resourceProviderManagers) {
+      delete resourceProviderManager;
+    }
+
+    delete resourceProviderManagers;
+    resourceProviderManagers = nullptr;
 
     delete registrar;
     registrar = nullptr;

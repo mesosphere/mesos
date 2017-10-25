@@ -70,9 +70,10 @@
 
 #include "master/master.hpp"
 
-#include "sched/constants.hpp"
-
 #include "resource_provider/detector.hpp"
+#include "resource_provider/manager.hpp"
+
+#include "sched/constants.hpp"
 
 #include "slave/constants.hpp"
 #include "slave/slave.hpp"
@@ -239,6 +240,12 @@ protected:
       mesos::master::detector::MasterDetector* detector,
       slave::Containerizer* containerizer,
       mesos::Authorizer* authorizer,
+      const Option<slave::Flags>& flags = None());
+
+  // Starts a slave with the specified detector, resource provider, and flags.
+  virtual Try<process::Owned<cluster::Slave>> StartSlave(
+      mesos::master::detector::MasterDetector* detector,
+      ResourceProviderManager* resourceProviderManager,
       const Option<slave::Flags>& flags = None());
 
   Option<zookeeper::URL> zookeeperUrl;

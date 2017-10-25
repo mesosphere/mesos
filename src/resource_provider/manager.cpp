@@ -21,27 +21,18 @@
 #include <string>
 #include <utility>
 
-#include <mesos/http.hpp>
-
-#include <mesos/resource_provider/resource_provider.hpp>
-
-#include <mesos/v1/resource_provider/resource_provider.hpp>
-
 #include <process/dispatch.hpp>
 #include <process/id.hpp>
-#include <process/process.hpp>
 
 #include <stout/hashmap.hpp>
 #include <stout/protobuf.hpp>
-#include <stout/uuid.hpp>
 
-#include "common/http.hpp"
-#include "common/recordio.hpp"
+#include "common/protobuf_utils.hpp"
 #include "common/resources_utils.hpp"
 
 #include "internal/devolve.hpp"
-#include "internal/evolve.hpp"
 
+#include "resource_provider/manager_process.hpp"
 #include "resource_provider/validation.hpp"
 
 namespace http = process::http;
@@ -53,6 +44,7 @@ using mesos::resource_provider::Event;
 
 using process::Failure;
 using process::Future;
+using process::Owned;
 using process::Process;
 using process::ProcessBase;
 using process::Queue;
@@ -79,95 +71,13 @@ using std::string;
 namespace mesos {
 namespace internal {
 
-// Represents the streaming HTTP connection to a resource provider.
-struct HttpConnection
-{
-  HttpConnection(const http::Pipe::Writer& _writer,
-                 ContentType _contentType,
-                 UUID _streamId)
-    : writer(_writer),
-      contentType(_contentType),
-      streamId(_streamId),
-      encoder(lambda::bind(serialize, contentType, lambda::_1)) {}
-
-  // Converts the message to an Event before sending.
-  template <typename Message>
-  bool send(const Message& message)
-  {
-    // We need to evolve the internal 'message' into a
-    // 'v1::resource_provider::Event'.
-    return writer.write(encoder.encode(evolve(message)));
-  }
-
-  bool close()
-  {
-    return writer.close();
-  }
-
-  Future<Nothing> closed() const
-  {
-    return writer.readerClosed();
-  }
-
-  http::Pipe::Writer writer;
-  ContentType contentType;
-  UUID streamId;
-  ::recordio::Encoder<v1::resource_provider::Event> encoder;
-};
-
-
-struct ResourceProvider
-{
-  ResourceProvider(
-      const ResourceProviderInfo& _info,
-      const HttpConnection& _http)
-    : info(_info),
-      http(_http) {}
-
-  ResourceProviderInfo info;
-  HttpConnection http;
-  Resources resources;
-};
-
-
-class ResourceProviderManagerProcess
-  : public Process<ResourceProviderManagerProcess>
-{
-public:
-  ResourceProviderManagerProcess();
-
-  Future<http::Response> api(
-      const http::Request& request,
-      const Option<Principal>& principal);
-
-  void applyOfferOperation(const ApplyOfferOperationMessage& message);
-
-  Queue<ResourceProviderMessage> messages;
-
-private:
-  void subscribe(
-      const HttpConnection& http,
-      const Call::Subscribe& subscribe);
-
-  void updateOfferOperationStatus(
-      ResourceProvider* resourceProvider,
-      const Call::UpdateOfferOperationStatus& update);
-
-  void updateState(
-      ResourceProvider* resourceProvider,
-      const Call::UpdateState& update);
-
-  ResourceProviderID newResourceProviderId();
-
-  struct ResourceProviders
-  {
-    hashmap<ResourceProviderID, ResourceProvider> subscribed;
-  } resourceProviders;
-};
-
-
 ResourceProviderManagerProcess::ResourceProviderManagerProcess()
   : ProcessBase(process::ID::generate("resource-provider-manager"))
+{
+}
+
+
+ResourceProviderManagerProcess::~ResourceProviderManagerProcess()
 {
 }
 
@@ -487,6 +397,14 @@ ResourceProviderID ResourceProviderManagerProcess::newResourceProviderId()
 
 ResourceProviderManager::ResourceProviderManager()
   : process(new ResourceProviderManagerProcess())
+{
+  spawn(CHECK_NOTNULL(process.get()));
+}
+
+
+ResourceProviderManager::ResourceProviderManager(
+    const Owned<ResourceProviderManagerProcess>& _process)
+  : process(_process)
 {
   spawn(CHECK_NOTNULL(process.get()));
 }
