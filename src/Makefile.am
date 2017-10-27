@@ -1437,6 +1437,8 @@ endif
 if ENABLE_GRPC
 if OS_LINUX
 libmesos_no_3rdparty_la_SOURCES +=					\
+  resource_provider/storage/paths.cpp					\
+  resource_provider/storage/paths.hpp					\
   resource_provider/storage/provider.cpp				\
   resource_provider/storage/provider.hpp
 endif
