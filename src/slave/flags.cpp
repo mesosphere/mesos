@@ -1383,6 +1383,13 @@ mesos::internal::slave::Flags::Flags()
       "this IPv6 address is only used to advertise IPv6 addresses for\n"
       "containers running on the host network.\n");
 
+  add(&Flags::memory_profiling,
+      "memory_profiling",
+      "May be either `enabled` or `disabled`. The default value is\n"
+      "`enabled`. This setting controls whether memory profiling\n"
+      "functionality should be exposed when jemalloc is detected.\n",
+      "enabled");
+
   add(&Flags::domain,
       "domain",
       "Domain that the agent belongs to. Mesos currently only supports\n"

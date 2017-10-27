@@ -627,6 +627,13 @@ mesos::internal::master::Flags::Flags()
       "However, this port (along with `advertise_ip`) may be used to\n"
       "access this master.");
 
+  add(&Flags::memory_profiling,
+      "memory_profiling",
+      "May be either `enabled` or `disabled`. The default value is\n"
+      "`enabled`. This setting controls whether memory profiling\n"
+      "functionality should be exposed when jemalloc is detected.\n",
+      "enabled");
+
   add(&Flags::zk,
       "zk",
       "ZooKeeper URL (used for leader election amongst masters).\n"
