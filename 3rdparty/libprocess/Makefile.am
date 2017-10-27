@@ -210,6 +210,7 @@ libprocess_la_SOURCES =		\
   src/poll_socket.cpp		\
   src/poll_socket.hpp		\
   src/profiler.cpp		\
+  src/memory_profiler.cpp \
   src/process.cpp		\
   src/process_reference.hpp	\
   src/reap.cpp			\
@@ -296,6 +297,7 @@ libprocess_tests_SOURCES =					\
   src/tests/limiter_tests.cpp					\
   src/tests/loop_tests.cpp					\
   src/tests/main.cpp						\
+  src/tests/memory_profiler_tests.cpp       \
   src/tests/metrics_tests.cpp					\
   src/tests/mutex_tests.cpp					\
   src/tests/owned_tests.cpp					\

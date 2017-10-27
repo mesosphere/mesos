@@ -77,6 +77,7 @@
 #include <process/owned.hpp>
 #include <process/process.hpp>
 #include <process/profiler.hpp>
+#include <process/memory_profiler.hpp>
 #include <process/reap.hpp>
 #include <process/sequence.hpp>
 #include <process/socket.hpp>
@@ -1205,6 +1206,9 @@ bool initialize(
 
   // Create the global profiler process.
   spawn(new Profiler(readwriteAuthenticationRealm), true);
+
+  // Create the global memory profiler process.
+  spawn(new MemoryProfiler(readwriteAuthenticationRealm), true);
 
   // Create the global system statistics process.
   spawn(new System(), true);
