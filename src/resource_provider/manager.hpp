@@ -53,6 +53,11 @@ public:
 
   void applyOfferOperation(const ApplyOfferOperationMessage& message) const;
 
+  // Ensure that the resources are ready for use.
+  process::Future<Nothing> publish(
+      const SlaveID& slaveId,
+      const Resources& resources);
+
   // Returns a stream of messages from the resource provider manager.
   process::Queue<ResourceProviderMessage> messages() const;
 

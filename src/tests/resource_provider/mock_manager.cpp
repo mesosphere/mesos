@@ -22,6 +22,8 @@ using ::testing::Invoke;
 
 using mesos::resource_provider::Call;
 
+using process::Future;
+
 namespace mesos {
 namespace internal {
 namespace tests {
@@ -31,6 +33,10 @@ MockResourceProviderManagerProcess::MockResourceProviderManagerProcess()
   EXPECT_CALL(*this, applyOfferOperation(_))
     .WillRepeatedly(Invoke(
         this, &MockResourceProviderManagerProcess::_applyOfferOperation));
+
+  EXPECT_CALL(*this, publish(_, _))
+    .WillRepeatedly(Invoke(
+        this, &MockResourceProviderManagerProcess::_publish));
 
   EXPECT_CALL(*this, subscribe(_, _))
     .WillRepeatedly(Invoke(
@@ -44,6 +50,10 @@ MockResourceProviderManagerProcess::MockResourceProviderManagerProcess()
   EXPECT_CALL(*this, updateState(_, _))
     .WillRepeatedly(Invoke(
         this, &MockResourceProviderManagerProcess::_updateState));
+
+  EXPECT_CALL(*this, published(_, _))
+    .WillRepeatedly(Invoke(
+        this, &MockResourceProviderManagerProcess::_published));
 }
 
 
@@ -56,6 +66,14 @@ void MockResourceProviderManagerProcess::_applyOfferOperation(
     const ApplyOfferOperationMessage& message)
 {
   ResourceProviderManagerProcess::applyOfferOperation(message);
+}
+
+
+Future<Nothing> MockResourceProviderManagerProcess::_publish(
+    const SlaveID& slaveId,
+    const Resources& resources)
+{
+  return ResourceProviderManagerProcess::publish(slaveId, resources);
 }
 
 
@@ -82,6 +100,16 @@ void MockResourceProviderManagerProcess::_updateState(
     const Call::UpdateState& update)
 {
   ResourceProviderManagerProcess::updateState(resourceProvider, update);
+}
+
+
+void MockResourceProviderManagerProcess::_published(
+    ResourceProvider* resourceProvider,
+    const Call::Published& published)
+{
+  ResourceProviderManagerProcess::published(
+      resourceProvider,
+      published);
 }
 
 } // namespace tests {

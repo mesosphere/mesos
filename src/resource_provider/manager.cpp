@@ -21,6 +21,7 @@
 #include <string>
 #include <utility>
 
+#include <process/collect.hpp>
 #include <process/dispatch.hpp>
 #include <process/id.hpp>
 
@@ -37,6 +38,9 @@
 
 namespace http = process::http;
 
+using std::list;
+using std::string;
+
 using mesos::internal::resource_provider::validation::call::validate;
 
 using mesos::resource_provider::Call;
@@ -47,8 +51,10 @@ using process::Future;
 using process::Owned;
 using process::Process;
 using process::ProcessBase;
+using process::Promise;
 using process::Queue;
 
+using process::collect;
 using process::dispatch;
 using process::spawn;
 using process::terminate;
@@ -64,9 +70,6 @@ using process::http::Pipe;
 using process::http::UnsupportedMediaType;
 
 using process::http::authentication::Principal;
-
-using std::string;
-
 
 namespace mesos {
 namespace internal {
@@ -214,8 +217,8 @@ Future<http::Response> ResourceProviderManagerProcess::api(
     }
 
     case Call::PUBLISHED: {
-      // TODO(nfnt): Add a 'PUBLISHED' handler.
-      return NotImplemented();
+      published(&resourceProvider, call.published());
+      return Accepted();
     }
 
     case Call::UNPUBLISHED: {
@@ -288,6 +291,59 @@ void ResourceProviderManagerProcess::applyOfferOperation(
                  << frameworkId << " to resource provider "
                  << resourceProviderId.get() << ": connection closed";
   }
+}
+
+
+Future<Nothing> ResourceProviderManagerProcess::publish(
+    const SlaveID& slaveId,
+    const Resources& resources)
+{
+  hashmap<ResourceProviderID, Resources> publishing;
+
+  foreach (const Resource& resource, resources) {
+    if (resource.has_provider_id()) {
+      publishing[resource.provider_id()] += resource;
+    }
+  }
+
+  list<Future<Nothing>> futures;
+
+  foreachpair (
+      const ResourceProviderID& resourceProviderId,
+      const Resources& resources,
+      publishing) {
+    const string uuid = UUID::random().toBytes();
+    pending[uuid].reset(new Promise<Nothing>());
+    futures.push_back(pending[uuid]->future());
+
+    if (!resourceProviders.subscribed.contains(resourceProviderId)) {
+      // TODO(chhsiao): If the manager is running on an agent and the
+      // resource comes from an external resource provider, we may want
+      // to load the provider's agent component.
+      pending[uuid]->fail(
+          "Resource provider " + stringify(resourceProviderId) +
+          " is not subscribed");
+    }
+
+    ResourceProvider& resourceProvider =
+      resourceProviders.subscribed.at(resourceProviderId);
+
+    // TODO(chhsiao): Remove the framework ID.
+    Event event;
+    event.set_type(Event::PUBLISH);
+    event.mutable_publish()->set_uuid(uuid);
+    event.mutable_publish()->mutable_agent_id()->CopyFrom(slaveId);
+    event.mutable_publish()->mutable_framework_id()->set_value("");
+    event.mutable_publish()->mutable_resources()->CopyFrom(resources);
+
+    if (!resourceProvider.http.send(event)) {
+      pending[uuid]->fail(
+        "Could not send operation to resource provider " +
+        stringify(resourceProviderId));
+    }
+  }
+
+  return collect(futures).then([] { return Nothing(); });
 }
 
 
@@ -387,6 +443,17 @@ void ResourceProviderManagerProcess::updateState(
 }
 
 
+void ResourceProviderManagerProcess::published(
+    ResourceProvider* resourceProvider,
+    const Call::Published& published)
+{
+  if (pending.contains(published.uuid())) {
+    pending[published.uuid()]->set(Nothing());
+    pending.erase(published.uuid());
+  }
+}
+
+
 ResourceProviderID ResourceProviderManagerProcess::newResourceProviderId()
 {
   ResourceProviderID resourceProviderId;
@@ -436,6 +503,18 @@ void ResourceProviderManager::applyOfferOperation(
       process.get(),
       &ResourceProviderManagerProcess::applyOfferOperation,
       message);
+}
+
+
+Future<Nothing> ResourceProviderManager::publish(
+    const SlaveID& slaveId,
+    const Resources& resources)
+{
+  return dispatch(
+      process.get(),
+      &ResourceProviderManagerProcess::publish,
+      slaveId,
+      resources);
 }
 
 

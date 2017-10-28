@@ -38,6 +38,10 @@ public:
   MOCK_METHOD1(applyOfferOperation, void(
       const ApplyOfferOperationMessage& message));
 
+  MOCK_METHOD2(publish, process::Future<Nothing>(
+      const SlaveID&,
+      const Resources&));
+
   MOCK_METHOD2(subscribe, void(
       const HttpConnection&,
       const mesos::resource_provider::Call::Subscribe&));
@@ -50,7 +54,15 @@ public:
       ResourceProvider*,
       const mesos::resource_provider::Call::UpdateState&));
 
+  MOCK_METHOD2(published, void(
+      ResourceProvider*,
+      const mesos::resource_provider::Call::Published&));
+
   void _applyOfferOperation(const ApplyOfferOperationMessage& message);
+
+  process::Future<Nothing> _publish(
+      const SlaveID& slaveId,
+      const Resources& resources);
 
   void _subscribe(
       const HttpConnection& http,
@@ -63,6 +75,10 @@ public:
   void _updateState(
       ResourceProvider* resourceProvider,
       const mesos::resource_provider::Call::UpdateState& update);
+
+  void _published(
+      ResourceProvider* resourceProvider,
+      const mesos::resource_provider::Call::Published& published);
 };
 
 

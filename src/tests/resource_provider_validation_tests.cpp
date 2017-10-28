@@ -108,6 +108,30 @@ TEST(ResourceProviderCallValidationTest, UpdateState)
   EXPECT_NONE(error);
 }
 
+
+TEST(ResourceProviderCallValidationTest, Published)
+{
+  Call call;
+  call.set_type(Call::PUBLISHED);
+
+  // Expecting a resource provider ID and `Call::Published`.
+  Option<Error> error = call::validate(call);
+  EXPECT_SOME(error);
+
+  ResourceProviderID* id = call.mutable_resource_provider_id();
+  id->set_value(UUID::random().toString());
+
+  // Still expecting `Call::Published`.
+  error = call::validate(call);
+  EXPECT_SOME(error);
+
+  Call::Published* published = call.mutable_published();
+  published->set_uuid(UUID::random().toBytes());
+
+  error = call::validate(call);
+  EXPECT_NONE(error);
+}
+
 } // namespace tests {
 } // namespace internal {
 } // namespace mesos {
