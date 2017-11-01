@@ -566,7 +566,7 @@ string getResourcesTargetPath(
 
 
 string getPersistentVolumePath(
-    const string& rootDir,
+    const string& workDir,
     const string& role,
     const string& persistenceId)
 {
@@ -587,12 +587,12 @@ string getPersistentVolumePath(
   string serializableRole = strings::replace(role, "/", " ");
 
   return path::join(
-      rootDir, "volumes", "roles", serializableRole, persistenceId);
+      workDir, "volumes", "roles", serializableRole, persistenceId);
 }
 
 
 string getPersistentVolumePath(
-    const string& rootDir,
+    const string& workDir,
     const Resource& volume)
 {
   CHECK_GT(volume.reservations_size(), 0);
@@ -608,10 +608,10 @@ string getPersistentVolumePath(
 
 
   // If no `source` is provided in `DiskInfo` volumes are mapped into
-  // the `rootDir`.
+  // the `workDir`.
   if (!volume.disk().has_source()) {
     return getPersistentVolumePath(
-        rootDir,
+        workDir,
         role,
         volume.disk().persistence().id());
   }
@@ -624,8 +624,13 @@ string getPersistentVolumePath(
       // For `PATH` we mount a directory inside the `root`.
       CHECK(volume.disk().source().has_path());
       CHECK(volume.disk().source().path().has_root());
+      string root = volume.disk().source().path().root();
+      if (!path::absolute(root)) {
+        // A relative path in `root` is relative to agent work dir.
+        root = path::join(workDir, root);
+      }
       return getPersistentVolumePath(
-          volume.disk().source().path().root(),
+          root,
           role,
           volume.disk().persistence().id());
     }
@@ -633,7 +638,12 @@ string getPersistentVolumePath(
       // For `MOUNT` we map straight onto the root of the mount.
       CHECK(volume.disk().source().has_mount());
       CHECK(volume.disk().source().mount().has_root());
-      return volume.disk().source().mount().root();
+      string root = volume.disk().source().mount().root();
+      if (!path::absolute(root)) {
+        // A relative path in `root` is relative to agent work dir.
+        root = path::join(workDir, root);
+      }
+      return root;
     }
     case Resource::DiskInfo::Source::BLOCK:
     case Resource::DiskInfo::Source::RAW:
