@@ -244,7 +244,10 @@ public:
   // an ACK is sent to the corresponding HTTP based executor.
   // NOTE: StatusUpdate is passed by value because it is modified
   // to ensure source field is set.
-  void statusUpdate(StatusUpdate update, const Option<process::UPID>& pid);
+  // Made 'virtual' for Slave mocking.
+  virtual void statusUpdate(
+      StatusUpdate update,
+      const Option<process::UPID>& pid);
 
   // Called when the slave receives a `StatusUpdate` from an executor
   // and the slave needs to retrieve the container status for the

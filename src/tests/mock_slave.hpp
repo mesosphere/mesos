@@ -214,6 +214,14 @@ public:
       const FrameworkID& frameworkId,
       const ExecutorID& executorId);
 
+  MOCK_METHOD2(statusUpdate, void(
+      StatusUpdate update,
+      const Option<process::UPID>& pid));
+
+  void unmocked_statusUpdate(
+      const StatusUpdate& update,
+      const Option<process::UPID>& pid);
+
 private:
   Files files;
   MockGarbageCollector gc;

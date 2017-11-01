@@ -148,6 +148,8 @@ MockSlave::MockSlave(
     .WillRepeatedly(Invoke(this, &MockSlave::unmocked_executorTerminated));
   EXPECT_CALL(*this, shutdownExecutor(_, _, _))
     .WillRepeatedly(Invoke(this, &MockSlave::unmocked_shutdownExecutor));
+  EXPECT_CALL(*this, statusUpdate(_, _))
+    .WillRepeatedly(Invoke(this, &MockSlave::unmocked_statusUpdate));
 }
 
 
@@ -249,6 +251,14 @@ void MockSlave::unmocked_shutdownExecutor(
     const ExecutorID& executorId)
 {
   slave::Slave::shutdownExecutor(from, frameworkId, executorId);
+}
+
+
+void MockSlave::unmocked_statusUpdate(
+    const StatusUpdate& update,
+    const Option<process::UPID>& pid)
+{
+  slave::Slave::statusUpdate(update, pid);
 }
 
 } // namespace tests {
