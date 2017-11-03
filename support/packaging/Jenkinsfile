@@ -25,18 +25,18 @@ parallel(centos7: {
   node {
     checkout scm
 
-    def img
-    if (params.REBUILD_DOCKER_IMAGE == "true") {
-      img = docker.build("mesos/packaging:centos7",
-                         "-f support/packaging/centos/centos7.dockerfile support/packaging/centos")
-    } else {
-      img = docker.image("mesos/packaging:centos7")
-    }
+    // def img
+    // if (params.REBUILD_DOCKER_IMAGE == "true") {
+    //   img = docker.build("mesos/packaging:centos7",
+    //                      "-f support/packaging/centos/centos7.dockerfile support/packaging/centos")
+    // } else {
+    //   img = docker.image("mesos/packaging:centos7")
+    // }
 
-    img.inside(dockerArgs()) {
-      sh 'hostname && hostname && cat /etc/*rel* || true'
-      sh 'support/packaging/centos/build_rpm.sh'
-    }
+    // img.inside(dockerArgs()) {
+    //   sh 'hostname && hostname && cat /etc/*rel* || true'
+    //   sh 'support/packaging/centos/build_rpm.sh'
+    // }
 
     archiveArtifacts artifacts: '**/*.rpm', fingerprint: true
     def rpms = findFiles(glob: '**/*.rpm, **/*.srpm')
@@ -47,19 +47,21 @@ centos6: {
   node {
     checkout scm
 
-    def img
-    if (params.REBUILD_DOCKER_IMAGE == "true") {
-      img = docker.build("mesos/packaging:centos6",
-                         "-f support/packaging/centos/centos6.dockerfile support/packaging/centos")
-    } else {
-      img = docker.image("mesos/packaging:centos6")
-    }
+    //def img
+    //if (params.REBUILD_DOCKER_IMAGE == "true") {
+    //  img = docker.build("mesos/packaging:centos6",
+    //                     "-f support/packaging/centos/centos6.dockerfile support/packaging/centos")
+    //} else {
+    //  img = docker.image("mesos/packaging:centos6")
+    //}
 
-    img.inside(dockerArgs()) {
-      sh 'hostname && hostname && cat /etc/*rel* || true'
-      sh 'support/packaging/centos/build_rpm.sh'
-    }
+    //img.inside(dockerArgs()) {
+    //  sh 'hostname && hostname && cat /etc/*rel* || true'
+    //  sh 'support/packaging/centos/build_rpm.sh'
+    //}
 
     archiveArtifacts artifacts: '**/*.rpm', fingerprint: true
+    def rpms = findFiles(glob: '**/*.rpm, **/*.srpm')
+    uploadToBintray(rpms)
   }
 })
