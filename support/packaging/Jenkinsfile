@@ -10,6 +10,17 @@ def dockerArgs() {
   return args
 }
 
+def uploadToBintray(def files) {
+  environment {
+    BINTRAY_USER = 'karya'
+    BINTRAY_API_KEY = credentials('karya_bintray_api_key')
+  }
+
+  for(i = 0; i < files.length; i++) {
+    sh 'support/packaging/bintray.sh files[i].path'
+  }
+}
+
 parallel(centos7: {
   node {
     checkout scm
@@ -28,6 +39,8 @@ parallel(centos7: {
     }
 
     archiveArtifacts artifacts: '**/*.rpm', fingerprint: true
+    def rpms = findFiles(glob: '**/*.rpm, **/*.srpm')
+    uploadToBintray(rpms)
   }
 },
 centos6: {
