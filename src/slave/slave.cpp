@@ -2274,6 +2274,11 @@ void Slave::__run(
       unallocated(_task.resources()).filter(needCheckpointing);
 
     foreach (const Resource& resource, checkpointedTaskResources) {
+      if (resource.has_provider_id()) {
+        // Defer the check till the provider publishes the resource.
+        continue;
+      }
+
       if (!checkpointedResources.contains(resource)) {
         LOG(WARNING) << "Unknown checkpointed resource " << resource
                      << " for task " << _task
@@ -2502,9 +2507,12 @@ void Slave::__run(
       LOG(INFO) << "Queued " << taskOrTaskGroup(task, taskGroup)
                 << " for executor " << *executor;
 
-      containerizer->update(
-          executor->containerId,
-          executor->allocatedResources())
+      publishAllocatedResources()
+        .then(defer(self(), [=] {
+          return containerizer->update(
+              executor->containerId,
+              executor->allocatedResources());
+        }))
         .onAny(defer(self(),
                      &Self::___run,
                      lambda::_1,
@@ -2946,11 +2954,14 @@ void Slave::launchExecutor(
             << "' of framework " << framework->id();
 
   // Launch the container.
-  containerizer->launch(
-      executor->containerId,
-      containerConfig,
-      environment,
-      pidCheckpointPath)
+  publishAllocatedResources(containerConfig.resources())
+    .then(defer(self(), [=] {
+      return containerizer->launch(
+          executor->containerId,
+          containerConfig,
+          environment,
+          pidCheckpointPath);
+    }))
     .onAny(defer(self(),
                  &Self::executorLaunched,
                  frameworkId,
@@ -4033,9 +4044,12 @@ void Slave::subscribe(
         }
       }
 
-      containerizer->update(
-          executor->containerId,
-          executor->allocatedResources())
+      publishAllocatedResources()
+        .then(defer(self(), [=] {
+          return containerizer->update(
+              executor->containerId,
+              executor->allocatedResources());
+        }))
         .onAny(defer(self(),
                      &Self::___run,
                      lambda::_1,
@@ -4237,9 +4251,12 @@ void Slave::registerExecutor(
         }
       }
 
-      containerizer->update(
-          executor->containerId,
-          executor->allocatedResources())
+      publishAllocatedResources()
+        .then(defer(self(), [=] {
+          return containerizer->update(
+              executor->containerId,
+              executor->allocatedResources());
+        }))
         .onAny(defer(self(),
                      &Self::___run,
                      lambda::_1,
@@ -7079,6 +7096,24 @@ void Slave::apply(const vector<ResourceConversion>& conversions)
   CHECK_SOME(resources);
 
   totalResources = resources.get();
+}
+
+
+Future<Nothing> Slave::publishAllocatedResources(const Option<Resources>& extra)
+{
+  Resources allocated;
+
+  foreachvalue (const Framework* framework, frameworks) {
+    foreachvalue (const Executor* executor, framework->executors) {
+      allocated += executor->allocatedResources();
+    }
+  }
+
+  if (extra.isSome()) {
+    allocated += extra.get();
+  }
+
+  return resourceProviderManager->publish(info.id(), allocated);
 }
 
 

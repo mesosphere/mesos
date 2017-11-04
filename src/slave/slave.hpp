@@ -548,6 +548,9 @@ private:
 
   void apply(const std::vector<ResourceConversion>& conversions);
 
+  process::Future<Nothing> publishAllocatedResources(
+      const Option<Resources>& extra = None());
+
   // Gauge methods.
   double _frameworks_active()
   {
