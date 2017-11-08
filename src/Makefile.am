@@ -1010,6 +1010,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   scheduler/scheduler.cpp						\
   secret/resolver.cpp							\
   slave/constants.cpp							\
+  slave/container_daemon.cpp						\
   slave/container_logger.cpp						\
   slave/flags.cpp							\
   slave/gc.cpp								\
@@ -1156,6 +1157,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   scheduler/constants.hpp						\
   scheduler/flags.hpp							\
   slave/constants.hpp							\
+  slave/container_daemon.hpp						\
   slave/flags.hpp							\
   slave/gc.hpp								\
   slave/gc_process.hpp							\
