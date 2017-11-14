@@ -26,9 +26,18 @@
 
 #include <mesos/v1/resource_provider.hpp>
 
+#include <stout/os.hpp>
+
+#include "common/http.hpp"
+
 #include "internal/devolve.hpp"
+#include "internal/evolve.hpp"
 
 #include "resource_provider/detector.hpp"
+
+#include "resource_provider/storage/paths.hpp"
+
+#include "slave/paths.hpp"
 
 namespace http = process::http;
 
@@ -40,13 +49,12 @@ using process::Process;
 
 using process::defer;
 using process::spawn;
-using process::terminate;
-using process::wait;
 
 using process::http::authentication::Principal;
 
 using mesos::ResourceProviderInfo;
 
+using mesos::resource_provider::Call;
 using mesos::resource_provider::Event;
 
 using mesos::v1::resource_provider::Driver;
@@ -83,6 +91,7 @@ public:
     : ProcessBase(process::ID::generate("storage-local-resource-provider")),
       url(_url),
       workDir(_workDir),
+      metaDir(slave::paths::getMetaRootDir(_workDir)),
       contentType(ContentType::PROTOBUF),
       info(_info),
       slaveId(_slaveId),
@@ -100,19 +109,40 @@ public:
 
 private:
   void initialize() override;
+  void fatal(const string& messsage, const string& failure);
+
+  // Functions for received events.
+  void subscribed(const Event::Subscribed& subscribed);
+  void operation(const Event::Operation& operation);
+  void publish(const Event::Publish& publish);
 
   const http::URL url;
   const string workDir;
+  const string metaDir;
   const ContentType contentType;
   ResourceProviderInfo info;
   const SlaveID slaveId;
+  const Option<string> authToken;
+
   Owned<v1::resource_provider::Driver> driver;
-  Option<string> authToken;
 };
 
 
 void StorageLocalResourceProviderProcess::connected()
 {
+  const string message =
+    "Failed to subscribe resource provider with type '" + info.type() +
+    "' and name '" + info.name() + "'";
+
+  Call call;
+  call.set_type(Call::SUBSCRIBE);
+
+  Call::Subscribe* subscribe = call.mutable_subscribe();
+  subscribe->mutable_resource_provider_info()->CopyFrom(info);
+
+  driver->send(evolve(call))
+    .onFailed(defer(self(), &Self::fatal, message, lambda::_1))
+    .onDiscarded(defer(self(), &Self::fatal, message, "future discarded"));
 }
 
 
@@ -123,19 +153,22 @@ void StorageLocalResourceProviderProcess::disconnected()
 
 void StorageLocalResourceProviderProcess::received(const Event& event)
 {
-  // TODO(jieyu): Print resource provider ID.
   LOG(INFO) << "Received " << event.type() << " event";
 
   switch (event.type()) {
     case Event::SUBSCRIBED: {
+      CHECK(event.has_subscribed());
+      subscribed(event.subscribed());
       break;
     }
     case Event::OPERATION: {
       CHECK(event.has_operation());
+      operation(event.operation());
       break;
     }
     case Event::PUBLISH: {
       CHECK(event.has_publish());
+      publish(event.publish());
       break;
     }
     case Event::UNPUBLISH: {
@@ -152,6 +185,19 @@ void StorageLocalResourceProviderProcess::received(const Event& event)
 
 void StorageLocalResourceProviderProcess::initialize()
 {
+  // Recover the resource provider ID from the latest symlink. If the
+  // symlink cannot be resolved, treat this as a new resource provider.
+  // TODO(chhsiao): State recovery.
+  const string latest = slave::paths::getLatestResourceProviderPath(
+      metaDir,
+      slaveId,
+      info.type(),
+      info.name());
+  Result<string> realpath = os::realpath(latest);
+  if (realpath.isSome()) {
+    info.mutable_id()->set_value(Path(realpath.get()).basename());
+  }
+
   driver.reset(new Driver(
       Owned<EndpointDetector>(new ConstantEndpointDetector(url)),
       contentType,
@@ -168,6 +214,44 @@ void StorageLocalResourceProviderProcess::initialize()
 }
 
 
+void StorageLocalResourceProviderProcess::fatal(
+    const string& message,
+    const string& failure)
+{
+  LOG(ERROR) << message << ": " << failure;
+  process::terminate(self());
+}
+
+
+void StorageLocalResourceProviderProcess::subscribed(
+    const Event::Subscribed& subscribed)
+{
+  LOG(INFO) << "Subscribed with ID " << subscribed.provider_id().value();
+
+  if (!info.has_id()) {
+    // New subscription.
+    info.mutable_id()->CopyFrom(subscribed.provider_id());
+    slave::paths::createResourceProviderDirectory(
+        metaDir,
+        slaveId,
+        info.type(),
+        info.name(),
+        info.id());
+  }
+}
+
+
+void StorageLocalResourceProviderProcess::operation(
+    const Event::Operation& operation)
+{
+}
+
+
+void StorageLocalResourceProviderProcess::publish(const Event::Publish& publish)
+{
+}
+
+
 Try<Owned<LocalResourceProvider>> StorageLocalResourceProvider::create(
     const http::URL& url,
     const string& workDir,
@@ -175,6 +259,34 @@ Try<Owned<LocalResourceProvider>> StorageLocalResourceProvider::create(
     const SlaveID& slaveId,
     const Option<string>& authToken)
 {
+  if (!info.has_storage()) {
+    return Error("'ResourceProviderInfo.storage' must be set");
+  }
+
+  bool hasControllerPlugin = false;
+  bool hasNodePlugin = false;
+
+  foreach (const CSIPluginInfo& plugin, info.storage().csi_plugins()) {
+    if (plugin.name() == info.storage().controller_plugin()) {
+      hasControllerPlugin = true;
+    }
+    if (plugin.name() == info.storage().node_plugin()) {
+      hasNodePlugin = true;
+    }
+  }
+
+  if (!hasControllerPlugin) {
+    return Error(
+        "'" + info.storage().controller_plugin() + "' not found in "
+        "'ResourceProviderInfo.storage.csi_plugins'");
+  }
+
+  if (!hasNodePlugin) {
+    return Error(
+        "'" + info.storage().node_plugin() + "' not found in "
+        "'ResourceProviderInfo.storage.csi_plugins'");
+  }
+
   return Owned<LocalResourceProvider>(
       new StorageLocalResourceProvider(url, workDir, info, slaveId, authToken));
 }
@@ -202,8 +314,8 @@ StorageLocalResourceProvider::StorageLocalResourceProvider(
 
 StorageLocalResourceProvider::~StorageLocalResourceProvider()
 {
-  terminate(process.get());
-  wait(process.get());
+  process::terminate(process.get());
+  process::wait(process.get());
 }
 
 } // namespace internal {
