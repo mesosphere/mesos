@@ -456,7 +456,8 @@ void ResourceProviderManagerProcess::updateState(
   ResourceProviderMessage::UpdateTotalResources updateTotalResources{
       resourceProvider->info.id(),
       resourceVersionUuid.get(),
-      resourceProvider->resources};
+      resourceProvider ->resources,
+      {update.operations().begin(), update.operations().end()}};
 
   ResourceProviderMessage message;
   message.type = ResourceProviderMessage::Type::UPDATE_TOTAL_RESOURCES;
