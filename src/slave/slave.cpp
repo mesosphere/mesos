@@ -3777,10 +3777,42 @@ void Slave::statusUpdateAcknowledgement(
 }
 
 
-// TODO(greggomann): Implement offer operation update acknowledgement.
 void Slave::offerOperationUpdateAcknowledgement(
     const UPID& from,
-    const OfferOperationUpdateAcknowledgementMessage& acknowledgement) {}
+    const OfferOperationUpdateAcknowledgementMessage& acknowledgement)
+{
+  // TODO(greggomann): Implement offer operation update acknowledgement.
+
+  // Now remove this offer from our tracking assuming the
+  // acknowledgement was successfully processed by the agent or the
+  // resource provider; if a resource provider did not receive the
+  // acknowledgement the agent would receive the operation again in
+  // reconciliation.
+  if (!acknowledgement.has_operation_uuid()) {
+    LOG(WARNING)
+      << "Dropping offer operation acknowledgement from " << from
+      << " since it contains no operation UUID";
+    return;
+  }
+
+  Try<UUID> operationUuid = UUID::fromBytes(acknowledgement.operation_uuid());
+  if (operationUuid.isError()) {
+    LOG(WARNING)
+      << "Could not deserialze operation UUID '"
+      << acknowledgement.operation_uuid() << "' from " << from << ": "
+      << operationUuid.error();
+    return;
+  }
+
+  OfferOperation* operation = getOfferOperation(operationUuid.get());
+  if (operation == nullptr) {
+    LOG(WARNING)
+      << "Received acknowledgement for unknown operation "
+      << operationUuid.get() << " from " << from;
+  }
+
+  removeOfferOperation(operation);
+}
 
 
 void Slave::_statusUpdateAcknowledgement(
@@ -6740,6 +6772,11 @@ void Slave::handleResourceProviderMessage(
       totalResources -= oldTotal;
       totalResources += newTotal;
 
+      // Update tracking of pending offer operations.
+      foreach (auto&& operation, message->updateTotalResources->operations) {
+        addOfferOperation(new OfferOperation(operation));
+      }
+
       const UUID& resourceVersionUuid =
         message->updateTotalResources->resourceVersionUuid;
 
@@ -6774,6 +6811,13 @@ void Slave::handleResourceProviderMessage(
 
           updateSlaveMessage.mutable_resource_version_uuids()->CopyFrom(
               protobuf::createResourceVersions(resourceVersions));
+
+          UpdateSlaveMessage::OfferOperations* operations =
+            updateSlaveMessage.mutable_offer_operations();
+
+          foreachvalue (const OfferOperation* operation, offerOperations) {
+            operations->add_operations()->CopyFrom(*operation);
+          }
 
           send(master.get(), updateSlaveMessage);
 
