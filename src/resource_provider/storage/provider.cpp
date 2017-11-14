@@ -18,17 +18,25 @@
 
 #include <glog/logging.h>
 
+#include <process/after.hpp>
 #include <process/defer.hpp>
 #include <process/id.hpp>
+#include <process/loop.hpp>
 #include <process/process.hpp>
+#include <process/timeout.hpp>
 
 #include <mesos/resource_provider/resource_provider.hpp>
 
 #include <mesos/v1/resource_provider.hpp>
 
+#include <stout/foreach.hpp>
+#include <stout/hashmap.hpp>
 #include <stout/os.hpp>
 
 #include "common/http.hpp"
+
+#include "csi/client.hpp"
+#include "csi/utils.hpp"
 
 #include "internal/devolve.hpp"
 #include "internal/evolve.hpp"
@@ -37,6 +45,7 @@
 
 #include "resource_provider/storage/paths.hpp"
 
+#include "slave/container_daemon.hpp"
 #include "slave/paths.hpp"
 
 namespace http = process::http;
@@ -44,10 +53,19 @@ namespace http = process::http;
 using std::queue;
 using std::string;
 
+using process::Break;
+using process::Continue;
+using process::ControlFlow;
+using process::Failure;
+using process::Future;
 using process::Owned;
 using process::Process;
+using process::Promise;
+using process::Timeout;
 
+using process::after;
 using process::defer;
+using process::loop;
 using process::spawn;
 
 using process::http::authentication::Principal;
@@ -69,12 +87,57 @@ static const string SLRP_NAME_PREFIX = "mesos-slrp-";
 // to the characters reserved in RFC 3986.
 static const string SLRP_NAME_RESERVED = ".-";
 
+// Timeout for a CSI plugin to create its endpoint socket.
+static const Duration CSI_ENDPOINT_CREATION_TIMEOUT = Seconds(5);
+
+// Backoff period between connection checks for a CSI plugin.
+static const Duration CSI_CONNECTION_BACKOFF_FACTOR = Minutes(1);
+
 
 // Returns a prefix for naming components of the resource provider. This
 // can be used in various places, such as container IDs for CSI plugins.
 static inline string getPrefix(const ResourceProviderInfo& info)
 {
   return SLRP_NAME_PREFIX + http::encode(info.name(), SLRP_NAME_RESERVED) + "-";
+}
+
+
+// Returns the container ID for the plugin.
+static inline ContainerID getContainerID(
+    const ResourceProviderInfo& info,
+    const string& plugin)
+{
+  ContainerID containerId;
+
+  containerId.set_value(
+      getPrefix(info) + http::encode(plugin, SLRP_NAME_RESERVED));
+
+  return containerId;
+}
+
+
+// Returns the parent endpoint as a URL.
+static inline http::URL extractParentEndpoint(const http::URL& url)
+{
+  http::URL parent = url;
+
+  parent.path = Path(url.path).dirname();
+
+  return parent;
+}
+
+
+// Convenient function to check if an iterable contains a value.
+template <typename Iterable, typename Value>
+static inline bool contains(const Iterable& iterable, const Value& value)
+{
+  foreach (const auto& item, iterable) {
+    if (item == value) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 
@@ -116,6 +179,9 @@ private:
   void operation(const Event::Operation& operation);
   void publish(const Event::Publish& publish);
 
+  Future<csi::Client> connect(const string& endpoint);
+  Future<csi::Client> getService(const string& plugin);
+
   const http::URL url;
   const string workDir;
   const string metaDir;
@@ -124,7 +190,12 @@ private:
   const SlaveID slaveId;
   const Option<string> authToken;
 
+  csi::Version csiVersion;
+  process::grpc::client::Runtime runtime;
   Owned<v1::resource_provider::Driver> driver;
+
+  hashmap<string, Owned<ContainerDaemon>> daemons;
+  hashmap<string, Owned<Promise<csi::Client>>> services;
 };
 
 
@@ -198,6 +269,22 @@ void StorageLocalResourceProviderProcess::initialize()
     info.mutable_id()->set_value(Path(realpath.get()).basename());
   }
 
+  // Set CSI version to 0.1.0.
+  csiVersion.set_major(0);
+  csiVersion.set_minor(1);
+  csiVersion.set_patch(0);
+
+  // Prepare the directory where the mount points will be placed.
+  const string volumesDir = storage::paths::getCsiVolumeRootDir(
+      slave::paths::getResourceProviderAgentRootDir(
+          workDir,
+          info.type(),
+          info.name()));
+  Try<Nothing> mkdir = os::mkdir(volumesDir);
+  if (mkdir.isError()) {
+    fatal("Failed to create directory '" + volumesDir + "'", mkdir.error());
+  }
+
   driver.reset(new Driver(
       Owned<EndpointDetector>(new ConstantEndpointDetector(url)),
       contentType,
@@ -249,6 +336,183 @@ void StorageLocalResourceProviderProcess::operation(
 
 void StorageLocalResourceProviderProcess::publish(const Event::Publish& publish)
 {
+}
+
+
+// Returns a future of a CSI client that waits for the endpoint socket
+// to appear if necessary, then connects to the socket and check its
+// supported version.
+Future<csi::Client> StorageLocalResourceProviderProcess::connect(
+    const string& endpoint)
+{
+  Future<csi::Client> client;
+
+  if (os::exists(endpoint)) {
+    client = csi::Client("unix://" + endpoint, runtime);
+  } else {
+    // Wait for the endpoint socket to appear until the timeout expires.
+    Timeout timeout = Timeout::in(CSI_ENDPOINT_CREATION_TIMEOUT);
+
+    client = loop(
+        self(),
+        [=]() -> Future<Nothing> {
+          if (timeout.expired()) {
+            return Failure("Timed out waiting for endpoint '" + endpoint + "'");
+          }
+
+          return after(Milliseconds(10));
+        },
+        [=](const Nothing&) -> ControlFlow<csi::Client> {
+          if (os::exists(endpoint)) {
+            return Break(csi::Client("unix://" + endpoint, runtime));
+          }
+
+          return Continue();
+        });
+  }
+
+  return client
+    .then(defer(self(), [=](csi::Client client) {
+      return client.GetSupportedVersions(
+          csi::GetSupportedVersionsRequest::default_instance())
+        .then(defer(self(), [=](
+            const csi::GetSupportedVersionsResponse& response)
+            -> Future<csi::Client> {
+          if (!contains(response.result().supported_versions(), csiVersion)) {
+            return Failure(
+                "CSI version " + stringify(csiVersion) + " is not supported");
+          }
+
+          return client;
+        }));
+    }));
+}
+
+
+// Returns a future of the latest CSI client for the specified plugin.
+// If the plugin is not already running, this method will start a new
+// a new container daemon..
+Future<csi::Client> StorageLocalResourceProviderProcess::getService(
+    const string& plugin)
+{
+  if (daemons.contains(plugin)) {
+    CHECK(services.contains(plugin));
+    return services.at(plugin)->future();
+  }
+
+  Option<CSIPluginInfo> config;
+  foreach (const CSIPluginInfo& _config, info.storage().csi_plugins()) {
+    if (_config.name() == plugin) {
+      config = _config;
+      break;
+    }
+  }
+  CHECK_SOME(config);
+
+  Try<string> endpoint = storage::paths::getCsiEndpointPath(
+      slave::paths::getResourceProviderAgentRootDir(
+          workDir,
+          info.type(),
+          info.name()),
+      plugin);
+
+  if (endpoint.isError()) {
+    return Failure(
+        "Failed to resolve endpoint path for plugin '" + plugin + "': " +
+        endpoint.error());
+  }
+
+  const string& endpointPath = endpoint.get();
+  const string endpointDir = Path(endpointPath).dirname();
+  const string mountDir = storage::paths::getCsiVolumeRootDir(
+      slave::paths::getResourceProviderAgentRootDir(
+          workDir,
+          info.type(),
+          info.name()));
+
+  CommandInfo commandInfo;
+
+  if (config->has_command()) {
+    commandInfo.CopyFrom(config->command());
+  }
+
+  // Set the `CSI_ENDPOINT` environment variable.
+  Environment::Variable* endpointVar =
+    commandInfo.mutable_environment()->add_variables();
+  endpointVar->set_name("CSI_ENDPOINT");
+  endpointVar->set_value("unix://" + endpointPath);
+
+  ContainerInfo containerInfo;
+
+  if (config->has_container()) {
+    containerInfo.CopyFrom(config->container());
+  } else {
+    containerInfo.set_type(ContainerInfo::MESOS);
+  }
+
+  // Prepare a volume where the endpoint socket will be placed.
+  Volume* endpointVolume = containerInfo.add_volumes();
+  endpointVolume->set_mode(Volume::RW);
+  endpointVolume->set_container_path(endpointDir);
+  endpointVolume->set_host_path(endpointDir);
+
+  // Prepare a volume where the mount points will be placed.
+  Volume* mountVolume = containerInfo.add_volumes();
+  mountVolume->set_mode(Volume::RW);
+  mountVolume->set_container_path(mountDir);
+  mountVolume->mutable_source()->set_type(Volume::Source::HOST_PATH);
+  mountVolume->mutable_source()->mutable_host_path()->set_path(mountDir);
+  mountVolume->mutable_source()->mutable_host_path()
+    ->mutable_mount_propagation()->set_mode(MountPropagation::BIDIRECTIONAL);
+
+  CHECK(!services.contains(plugin));
+  services[plugin].reset(new Promise<csi::Client>());
+
+  Try<Owned<ContainerDaemon>> daemon = ContainerDaemon::create(
+      extractParentEndpoint(url),
+      authToken,
+      getContainerID(info, plugin),
+      commandInfo,
+      config->resources(),
+      containerInfo,
+      defer(self(), [=] {
+        CHECK(services.at(plugin)->future().isPending());
+
+        return connect(endpointPath)
+          .then(defer(self(), [=](const csi::Client& client) {
+            services.at(plugin)->set(client);
+            return Nothing();
+          }))
+          .onFailed(defer(self(), [=](const string& failure) {
+            services.at(plugin)->fail(failure);
+          }))
+          .onDiscarded(defer(self(), [=] {
+            services.at(plugin)->discard();
+          }));
+      }),
+      defer(self(), [=]() -> Future<Nothing> {
+        services.at(plugin)->discard();
+        services.at(plugin).reset(new Promise<csi::Client>());
+
+        if (os::exists(endpointPath)) {
+          Try<Nothing> rm = os::rm(endpoint.get());
+          if (rm.isError()) {
+            return Failure(
+                "Failed to remove endpoint '" + endpoint.get() + "': " +
+                rm.error());
+          }
+        }
+
+        return Nothing();
+      }));
+
+  if (daemon.isError()) {
+    return Failure(daemon.error());
+  }
+
+  daemons[plugin] = daemon.get();
+
+  return services.at(plugin)->future();
 }
 
 
