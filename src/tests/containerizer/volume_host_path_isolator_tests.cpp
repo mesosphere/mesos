@@ -99,13 +99,13 @@ TEST_F(VolumeHostPathIsolatorTest, ROOT_VolumeFromHost)
   string directory = path::join(flags.work_dir, "sandbox");
   ASSERT_SOME(os::mkdir(directory));
 
-  Future<bool> launch = containerizer->launch(
+  Future<Containerizer::LaunchResult> launch = containerizer->launch(
       containerId,
       createContainerConfig(None(), executor, directory),
       map<string, string>(),
       None());
 
-  AWAIT_READY(launch);
+  AWAIT_ASSERT_EQ(Containerizer::LaunchResult::SUCCESS, launch);
 
   Future<Option<ContainerTermination>> wait = containerizer->wait(containerId);
 
@@ -156,13 +156,14 @@ TEST_F(VolumeHostPathIsolatorTest, ROOT_FileVolumeFromHost)
   string directory = path::join(flags.work_dir, "sandbox");
   ASSERT_SOME(os::mkdir(directory));
 
-  Future<bool> launch = containerizer->launch(
+  Future<Containerizer::LaunchResult> launch = containerizer->launch(
       containerId,
       createContainerConfig(None(), executor, directory),
       map<string, string>(),
       None());
 
-  AWAIT_READY_FOR(launch, Seconds(60));
+  AWAIT_ASSERT_EQ_FOR(
+      Containerizer::LaunchResult::SUCCESS, launch, Seconds(60));
 
   Future<Option<ContainerTermination>> wait = containerizer->wait(containerId);
 
@@ -213,13 +214,13 @@ TEST_F(VolumeHostPathIsolatorTest, ROOT_VolumeFromHostSandboxMountPoint)
   string directory = path::join(flags.work_dir, "sandbox");
   ASSERT_SOME(os::mkdir(directory));
 
-  Future<bool> launch = containerizer->launch(
+  Future<Containerizer::LaunchResult> launch = containerizer->launch(
       containerId,
       createContainerConfig(None(), executor, directory),
       map<string, string>(),
       None());
 
-  AWAIT_READY(launch);
+  AWAIT_ASSERT_EQ(Containerizer::LaunchResult::SUCCESS, launch);
 
   Future<Option<ContainerTermination>> wait = containerizer->wait(containerId);
 
@@ -270,13 +271,14 @@ TEST_F(VolumeHostPathIsolatorTest, ROOT_FileVolumeFromHostSandboxMountPoint)
   string directory = path::join(flags.work_dir, "sandbox");
   ASSERT_SOME(os::mkdir(directory));
 
-  Future<bool> launch = containerizer->launch(
+  Future<Containerizer::LaunchResult> launch = containerizer->launch(
       containerId,
       createContainerConfig(None(), executor, directory),
       map<string, string>(),
       None());
 
-  AWAIT_READY_FOR(launch, Seconds(60));
+  AWAIT_ASSERT_EQ_FOR(
+      Containerizer::LaunchResult::SUCCESS, launch, Seconds(60));
 
   Future<Option<ContainerTermination>> wait = containerizer->wait(containerId);
 
