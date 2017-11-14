@@ -5421,7 +5421,7 @@ void Slave::executorLaunched(
     const FrameworkID& frameworkId,
     const ExecutorID& executorId,
     const ContainerID& containerId,
-    const Future<bool>& future)
+    const Future<Containerizer::LaunchResult>& future)
 {
   // Set up callback for executor termination. Note that we do this
   // regardless of whether or not we have successfully launched the
@@ -5464,7 +5464,7 @@ void Slave::executorLaunched(
     }
 
     return;
-  } else if (!future.get()) {
+  } else if (future.get() == Containerizer::LaunchResult::NOT_SUPPORTED) {
     LOG(ERROR) << "Container '" << containerId
                << "' for executor '" << executorId
                << "' of framework " << frameworkId
@@ -5473,6 +5473,15 @@ void Slave::executorLaunched(
                << "provided TaskInfo/ExecutorInfo message";
 
     ++metrics.container_launch_errors;
+    return;
+  } else if (future.get() == Containerizer::LaunchResult::ALREADY_LAUNCHED) {
+    // This should be extremely rare, as the user would need to launch a
+    // standalone container with a user-specified UUID that happens to
+    // collide with the Agent-generated ContainerID for this launch.
+    LOG(ERROR) << "Container '" << containerId
+               << "' for executor '" << executorId
+               << "' of framework " << frameworkId
+               << " has already been launched.";
     return;
   }
 
