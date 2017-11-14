@@ -7012,6 +7012,24 @@ void Master::updateSlave(const UpdateSlaveMessage& message)
     return;
   }
 
+  if (message.has_offer_operations()) {
+    // Remove all currently tracked offer operations known for this agent.
+    foreachvalue (OfferOperation* operation, slave->offerOperations) {
+      removeOfferOperation(operation);
+    }
+
+    // Track the received offer operations.
+    foreach (
+        const OfferOperation& operation,
+        message.offer_operations().operations()) {
+      Framework* framework = nullptr;
+      if (operation.has_framework_id()) {
+        framework = getFramework(operation.framework_id());
+      }
+      addOfferOperation(framework, slave, new OfferOperation(operation));
+    }
+  }
+
   // NOTE: We must *first* update the agent's resources before we
   // recover the resources. If we recovered the resources first,
   // an allocation could trigger between recovering resources and
