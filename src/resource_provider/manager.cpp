@@ -131,6 +131,8 @@ struct ResourceProvider
 
   ~ResourceProvider()
   {
+    LOG(INFO) << "Terminating resource provider " << info.id();
+
     http.close();
 
     foreachvalue (const Owned<Promise<Nothing>>& publish, publishes) {
@@ -652,6 +654,10 @@ void ResourceProviderManagerProcess::updateState(
   CHECK_SOME(resourceVersionUuid)
     << "Could not deserialize version of resource provider "
     << resourceProvider->info.id() << ": " << resourceVersionUuid.error();
+
+  LOG(INFO)
+    << "Received UPDATE_STATE call with resources '" << update.resources()
+    << "' from resource provider " << resourceProvider->info.id();
 
   ResourceProviderMessage::UpdateState updateState{
       resourceProvider->info,
