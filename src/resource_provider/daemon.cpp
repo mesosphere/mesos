@@ -86,22 +86,40 @@ public:
 
   void start(const SlaveID& _slaveId);
 
+  Future<bool> add(const ResourceProviderInfo& info);
+  Future<bool> update(const ResourceProviderInfo& info);
+  Future<bool> remove(const string& type, const string& name);
+
 protected:
   void initialize() override;
 
 private:
   struct ProviderData
   {
-    ProviderData(const ResourceProviderInfo& _info)
-      : info(_info) {}
+    ProviderData(const string& _path, const ResourceProviderInfo& _info)
+      : path(_path), info(_info), version(UUID::random()) {}
 
-    const ResourceProviderInfo info;
+    const string path;
+    ResourceProviderInfo info;
+
+    // The `version` is used to check if `provider` holds a resource
+    // provider instance that is in sync with the current config.
+    UUID version;
     Owned<LocalResourceProvider> provider;
   };
 
   Try<Nothing> load(const string& path);
 
-  Future<Nothing> launch(const string& type, const string& name);
+  // NOTE: `launch` should only be called once for each config version.
+  // It will pick up the latest config to launch the resource provider.
+  Future<Nothing> launch(
+      const string& type,
+      const string& name);
+  Future<Nothing> _launch(
+      const string& type,
+      const string& name,
+      const UUID& version,
+      const Option<string>& authToken);
 
   Future<Option<string>> generateAuthToken(const ResourceProviderInfo& info);
 
@@ -143,6 +161,125 @@ void LocalResourceProviderDaemonProcess::start(const SlaveID& _slaveId)
         .onDiscarded(std::bind(error, "future discarded"));
     }
   }
+}
+
+
+Future<bool> LocalResourceProviderDaemonProcess::add(
+    const ResourceProviderInfo& info)
+{
+  if (configDir.isNone()) {
+    return Failure("`--resource_provider_config_dir` must be specified");
+  }
+
+  if (providers[info.type()].contains(info.name())) {
+    return false;
+  }
+
+  // Create a new config file.
+  // NOTE: We use `os::mktemp` with template `<type>.<name>.json.XXXXXX`
+  // to create a new file whose name does not conflic with any existing
+  // ad-hoc config file.
+  Try<string> path = os::mktemp(path::join(
+      configDir.get(),
+      strings::join(".", info.type(), info.name(), "json", "XXXXXX")));
+
+  if (path.isError()) {
+    return Failure(
+        "Failed to create config file in directory '" + configDir.get() +
+        "': " + path.error());
+  }
+
+  Try<Nothing> write = os::write(path.get(), stringify(JSON::protobuf(info)));
+  if (write.isError()) {
+    return Failure(
+        "Failed to write config file '" + path.get() + "': " + write.error());
+  }
+
+  providers[info.type()].put(info.name(), {path.get(), info});
+
+  // Launch the resource provider if the daemon is already started.
+  if (slaveId.isSome()) {
+    auto err = [](const ResourceProviderInfo& info, const string& message) {
+      LOG(ERROR)
+        << "Failed to launch resource provider with type '" << info.type()
+        << "' and name '" << info.name() << "': " << message;
+    };
+
+    launch(info.type(), info.name())
+      .onFailed(std::bind(err, info, lambda::_1))
+      .onDiscarded(std::bind(err, info, "future discarded"));
+  }
+
+  return true;
+}
+
+
+Future<bool> LocalResourceProviderDaemonProcess::update(
+    const ResourceProviderInfo& info)
+{
+  if (configDir.isNone()) {
+    return Failure("`--resource_provider_config_dir` must be specified");
+  }
+
+  if (!providers[info.type()].contains(info.name())) {
+    return false;
+  }
+
+  ProviderData& data = providers[info.type()].at(info.name());
+
+  Try<Nothing> write = os::write(data.path, stringify(JSON::protobuf(info)));
+  if (write.isError()) {
+    return Failure(
+        "Failed to write config file '" + data.path + "': " + write.error());
+  }
+
+  data.info = info;
+
+  // Update `version` to indicate that the config has been updated.
+  data.version = UUID::random();
+
+  // Launch the resource provider if the daemon is already started.
+  if (slaveId.isSome()) {
+    auto err = [](const ResourceProviderInfo& info, const string& message) {
+      LOG(ERROR)
+        << "Failed to launch resource provider with type '" << info.type()
+        << "' and name '" << info.name() << "': " << message;
+    };
+
+    launch(info.type(), info.name())
+      .onFailed(std::bind(err, info, lambda::_1))
+      .onDiscarded(std::bind(err, info, "future discarded"));
+  }
+
+  return true;
+}
+
+
+Future<bool> LocalResourceProviderDaemonProcess::remove(
+    const string& type,
+    const string& name)
+{
+  if (configDir.isNone()) {
+    return Failure("`--resource_provider_config_dir` must be specified");
+  }
+
+  if (!providers[type].contains(name)) {
+    return false;
+  }
+
+  const string path = providers[type].at(name).path;
+
+  Try<Nothing> rm = os::rm(path);
+  if (rm.isError()) {
+    return Failure(
+        "Failed to remove config file '" + path + "': " + rm.error());
+  }
+
+  // Removing the provider data from `providers` will cause the resource
+  // provider to be destructed.
+  providers[type].erase(name);
+
+  return true;
 }
 
 
@@ -201,7 +338,7 @@ Try<Nothing> LocalResourceProviderDaemonProcess::load(const string& path)
         "' and name '" + info->name() + "'");
   }
 
-  providers[info->type()].put(info->name(), info.get());
+  providers[info->type()].put(info->name(), {path, std::move(info.get())});
 
   return Nothing();
 }
@@ -212,27 +349,55 @@ Future<Nothing> LocalResourceProviderDaemonProcess::launch(
     const string& name)
 {
   CHECK_SOME(slaveId);
-  CHECK(providers[type].contains(name));
 
-  return generateAuthToken(providers[type].at(name).info)
-    .then(defer(self(), [=](
-        const Option<string>& authToken) -> Future<Nothing> {
-      ProviderData& data = providers[type].at(name);
+  // If the resource provider config is removed, nothing needs to be done.
+  if (!providers[type].contains(name)) {
+    return Nothing();
+  }
 
-      Try<Owned<LocalResourceProvider>> provider =
-        LocalResourceProvider::create(
-            url, workDir, data.info, slaveId.get(), authToken);
+  ProviderData& data = providers[type].at(name);
 
-      if (provider.isError()) {
-        return Failure(
-            "Failed to create resource provider with type '" + type +
-            "' and name '" + name + "': " + provider.error());
-      }
+  // Destruct the previous resource provider (which will synchronously
+  // terminate its actor and driver) if there is one.
+  data.provider.reset();
 
-      data.provider = provider.get();
+  return generateAuthToken(data.info)
+    .then(defer(self(), &Self::_launch, type, name, data.version, lambda::_1));
+}
 
-      return Nothing();
-    }));
+
+Future<Nothing> LocalResourceProviderDaemonProcess::_launch(
+    const string& type,
+    const string& name,
+    const UUID& version,
+    const Option<string>& authToken)
+{
+  // If the resource provider config is removed, abort the launch sequence.
+  if (!providers[type].contains(name)) {
+    return Nothing();
+  }
+
+  ProviderData& data = providers[type].at(name);
+
+  // If there is a version mismatch, abort the launch sequence since
+  // `authToken` might be outdated. The callback updating the version
+  // should have dispatched another launch sequence.
+  if (version != data.version) {
+    return Nothing();
+  }
+
+  Try<Owned<LocalResourceProvider>> provider = LocalResourceProvider::create(
+      url, workDir, data.info, slaveId.get(), authToken);
+
+  if (provider.isError()) {
+    return Failure(
+        "Failed to create resource provider with type '" + type +
+        "' and name '" + name + "': " + provider.error());
+  }
+
+  data.provider = provider.get();
+
+  return Nothing();
 }
 
 
@@ -323,14 +488,20 @@ void LocalResourceProviderDaemon::start(const SlaveID& slaveId)
 
 Future<bool> LocalResourceProviderDaemon::add(const ResourceProviderInfo& info)
 {
-  return Failure("Unimplemented");
+  return dispatch(
+      process.get(),
+      &LocalResourceProviderDaemonProcess::add,
+      info);
 }
 
 
 Future<bool> LocalResourceProviderDaemon::update(
     const ResourceProviderInfo& info)
 {
-  return Failure("Unimplemented");
+  return dispatch(
+      process.get(),
+      &LocalResourceProviderDaemonProcess::update,
+      info);
 }
 
 
@@ -338,7 +509,11 @@ Future<bool> LocalResourceProviderDaemon::remove(
     const string& type,
     const string& name)
 {
-  return Failure("Unimplemented");
+  return dispatch(
+      process.get(),
+      &LocalResourceProviderDaemonProcess::remove,
+      type,
+      name);
 }
 
 } // namespace internal {
