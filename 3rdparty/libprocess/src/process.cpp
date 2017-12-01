@@ -295,7 +295,7 @@ class HttpProxy : public Process<HttpProxy>
 {
 public:
   explicit HttpProxy(const Socket& _socket);
-  virtual ~HttpProxy() {}
+  virtual ~HttpProxy();
 
   // Enqueues the response to be sent once all previously enqueued
   // responses have been processed (e.g., waited for and sent).
