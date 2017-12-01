@@ -339,6 +339,8 @@ private:
 
   queue<Item*> items;
 
+  int hfd;
+
   Option<http::Pipe::Reader> pipe; // Current pipe, if streaming.
 };
 
@@ -1490,11 +1492,23 @@ long workers()
 
 HttpProxy::HttpProxy(const Socket& _socket)
   : ProcessBase(ID::generate("__http__")),
-    socket(_socket) {}
+    socket(_socket)
+{
+  hfd = socket.get();
+  VLOG(0) << "HttpProxy ctor for fd " << socket.get();
+}
+
+
+HttpProxy::~HttpProxy()
+{
+  VLOG(0) << "HttpProxy dtor for fd " << hfd;
+}
 
 
 void HttpProxy::finalize()
 {
+  VLOG(0) << "HttpProxy finalize for fd " << hfd;
+
   // Need to make sure response producers know not to continue to
   // create a response (streaming or otherwise).
   if (pipe.isSome()) {
