@@ -77,7 +77,7 @@ inline Try<URL> URL::parse(const std::string& url)
   std::string s = strings::trim(url);
 
   if (!strings::startsWith(s, URL::scheme())) {
-    return Error("Expecting 'zk://' at the beginning of the URL " << s << "END");
+    return Error("Expecting 'zk://' at the beginning of the URL " + s + "END");
   }
   s = s.substr(5);
 
