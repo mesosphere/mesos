@@ -18,6 +18,7 @@
 #include <process/future.hpp>
 #include <process/http.hpp>
 #include <process/process.hpp>
+#include <process/queue.hpp>
 #include <process/socket.hpp>
 
 #include <stout/option.hpp>
@@ -54,6 +55,7 @@ public:
       const http::Request& request);
 
 protected:
+  void initialize() override;
   void finalize() override;
 
 private:
@@ -73,7 +75,17 @@ private:
       const Owned<http::Request>& request,
       const Future<std::string>& chunk);
 
+  // Enqueues the encoder for sending.
+  void send(Owned<Encoder>&& encoder, bool persist = true);
+
+  // Helper for creating an encoder and calling `send()`.
+  void send(const http::Response& response, const http::Request& request);
+
   network::inet::Socket socket; // Store the socket to keep it open.
+
+  // Queue of outgoing encoders that will get sent on the socket by
+  // the send loop started in `initialize()`. `None` represents EOF.
+  Queue<Option<Owned<Encoder>>> outgoing;
 
   // Describes a queue "item" that wraps the future to the response
   // and the original request.

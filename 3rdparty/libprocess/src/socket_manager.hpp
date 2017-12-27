@@ -29,10 +29,6 @@
 
 namespace process {
 
-// Forward declaration.
-class HttpProxy;
-
-
 class SocketManager
 {
 public:
@@ -40,11 +36,8 @@ public:
   ~SocketManager();
 
   // Closes all managed sockets and clears any associated metadata.
-  // The `__s__` server socket must be closed and `ProcessManager`
-  // must be finalized before calling this.
+  // The `ProcessManager` must be finalized before calling this.
   void finalize();
-
-  void accepted(const network::inet::Socket& socket);
 
   void link(
       ProcessBase* process,
@@ -56,23 +49,6 @@ public:
   // Test-only method to fetch the file descriptor behind a
   // persistent socket.
   Option<int_fd> get_persistent_socket(const UPID& to);
-
-  PID<HttpProxy> proxy(const network::inet::Socket& socket);
-
-  // Used to clean up the pointer to an `HttpProxy` in case the
-  // `HttpProxy` is killed outside the control of the `SocketManager`.
-  // This generally happens when `process::finalize` is called.
-  void unproxy(const network::inet::Socket& socket);
-
-  void send(
-      Encoder* encoder,
-      bool persist,
-      const network::inet::Socket& socket);
-
-  void send(
-      const http::Response& response,
-      const http::Request& request,
-      const network::inet::Socket& socket);
 
   void send(
       Message&& message,
@@ -121,33 +97,32 @@ private:
       network::inet::Socket socket,
       Message&& message);
 
-  // Collection of all active sockets (both inbound and outbound).
+  // Collection of all active sockets (which are all outbound sockets,
+  // created as temporaries and also stored in `temps` or persistently
+  // when doing a `link()` and also stored in `persists`.
   hashmap<int_fd, network::inet::Socket> sockets;
 
   // Collection of sockets that should be disposed when they are
   // finished being used (e.g., when there is no more data to send on
-  // them). Can contain both inbound and outbound sockets.
+  // them).
   hashset<int_fd> dispose;
 
-  // Map from socket to socket address for outbound sockets.
+  // Map from socket to socket address.
   hashmap<int_fd, network::inet::Address> addresses;
 
-  // Map from socket address to temporary sockets (outbound sockets
-  // that will be closed once there is no more data to send on them).
+  // Map from socket address to temporary sockets (these sockets will
+  // be closed once there is no more data to send on them).
   hashmap<network::inet::Address, int_fd> temps;
 
-  // Map from socket address (ip, port) to persistent sockets
-  // (outbound sockets that will remain open even if there is no more
-  // data to send on them).  We distinguish these from the 'temps'
-  // collection so we can tell when a persistent socket has been lost
-  // (and thus generate ExitedEvents).
+  // Map from socket address (ip, port) to persistent sockets (sockets
+  // that will remain open even if there is no more data to send on
+  // them). We distinguish these from the 'temps' collection so we can
+  // tell when a persistent socket has been lost (and thus generate
+  // ExitedEvents).
   hashmap<network::inet::Address, int_fd> persists;
 
-  // Map from outbound socket to outgoing queue.
+  // Map from socket to outgoing queue.
   hashmap<int_fd, std::queue<Encoder*>> outgoing;
-
-  // HTTP proxies.
-  hashmap<int_fd, HttpProxy*> proxies;
 
   // Protects instance variables.
   std::recursive_mutex mutex;

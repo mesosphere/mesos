@@ -10,12 +10,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-#include <process/id.hpp>
+#include <process/collect.hpp>
 #include <process/defer.hpp>
+#include <process/id.hpp>
+#include <process/loop.hpp>
 
 #include "encoder.hpp"
 #include "http_proxy.hpp"
-#include "socket_manager.hpp"
 
 using process::http::InternalServerError;
 using process::http::NotFound;
@@ -35,8 +36,54 @@ HttpProxy::HttpProxy(const Socket& _socket)
     socket(_socket) {}
 
 
+void HttpProxy::initialize()
+{
+  // Start a "send" loop that sends ordered HTTP responses.
+  //
+  // NOTE: we don't bother capturing the future returned from `loop()`
+  // because we don't care about it completing and when `self()`
+  // terminates it'll also clean up the resources associated with the
+  // loop for us.
+  loop(
+      self(),
+      [=]() {
+        return outgoing.get();
+      },
+      [=](Option<Owned<Encoder>> encoder) -> Future<ControlFlow<Nothing>> {
+        if (encoder.isNone()) {
+          return Break();
+        }
+
+        return process::send(socket, std::move(encoder.get()))
+          .then([=]() -> ControlFlow<Nothing> {
+            return Continue();
+          });
+      })
+    .onAny(defer(self(), [=](const Future<Nothing>& future) {
+      // Regardless of whether we returned `Break()` above because the
+      // connection isn't meant to persist (i.e., the `future` is
+      // ready) or something failed (i.e., the `future` is failed) we
+      // want to self-terminate (which will also shutdown the
+      // socket).
+      terminate(self());
+    }));
+}
+
+
 void HttpProxy::finalize()
 {
+  // Failure here could be due to reasons including that the underlying
+  // socket is already closed so it by itself doesn't necessarily
+  // suggest anything wrong.
+  Try<Nothing, SocketError> shutdown = socket.shutdown();
+  if (shutdown.isError()) {
+    LOG(INFO) << "Failed to shutdown socket with fd " << socket.get()
+              << ", address " << (socket.address().isSome()
+                                  ? stringify(socket.address().get())
+                                  : "N/A")
+              << ": " << shutdown.error().message;
+  }
+
   // Need to make sure response producers know not to continue to
   // create a response (streaming or otherwise).
   if (pipe.isSome()) {
@@ -67,10 +114,6 @@ void HttpProxy::finalize()
     items.pop();
     delete item;
   }
-
-  // Just in case this process gets killed outside of `SocketManager::close`,
-  // remove the proxy from the socket.
-  socket_manager->unproxy(socket);
 }
 
 
@@ -136,7 +179,7 @@ bool HttpProxy::process(const Future<Response>& future, const Request& request)
                   ? future.failure()
                   : "discarded") << ")";
 
-    socket_manager->send(response, request, socket);
+    send(response, request);
 
     return true; // All done, can process next response.
   }
@@ -160,26 +203,26 @@ bool HttpProxy::process(const Future<Response>& future, const Request& request)
       if (error == ENOENT || error == ENOTDIR) {
 #endif // __WINDOWS__
           VLOG(1) << "Returning '404 Not Found' for path '" << path << "'";
-          socket_manager->send(NotFound(), request, socket);
+          send(NotFound(), request);
       } else {
         VLOG(1) << "Failed to send file at '" << path << "': " << fd.error();
-        socket_manager->send(InternalServerError(), request, socket);
+        send(InternalServerError(), request);
       }
     } else {
       const Try<Bytes> size = os::stat::size(fd.get());
       if (size.isError()) {
         VLOG(1) << "Failed to send file at '" << path << "': " << size.error();
-        socket_manager->send(InternalServerError(), request, socket);
+        send(InternalServerError(), request);
       } else if (os::stat::isdir(fd.get())) {
         VLOG(1) << "Returning '404 Not Found' for directory '" << path << "'";
-        socket_manager->send(NotFound(), request, socket);
+        send(NotFound(), request);
       } else {
         // While the user is expected to properly set a 'Content-Type'
         // header, we fill in (or overwrite) 'Content-Length' header.
         response.headers["Content-Length"] = stringify(size->bytes());
 
         if (size.get() == 0) {
-          socket_manager->send(response, request, socket);
+          send(response, request);
           return true; // All done, can process next request.
         }
 
@@ -188,16 +231,11 @@ bool HttpProxy::process(const Future<Response>& future, const Request& request)
 
         // TODO(benh): Consider a way to have the socket manager turn
         // on TCP_CORK for both sends and then turn it off.
-        socket_manager->send(
-            new HttpResponseEncoder(response, request),
-            true,
-            socket);
+        send(Owned<Encoder>(new HttpResponseEncoder(response, request)));
 
         // Note the file descriptor gets closed by FileEncoder.
-        socket_manager->send(
-            new FileEncoder(fd.get(), size->bytes()),
-            request.keepAlive,
-            socket);
+        send(Owned<Encoder>(
+            new FileEncoder(fd.get(), size->bytes())), request.keepAlive);
       }
     }
   } else if (response.type == Response::PIPE) {
@@ -211,10 +249,7 @@ bool HttpProxy::process(const Future<Response>& future, const Request& request)
 
     VLOG(3) << "Starting \"chunked\" streaming";
 
-    socket_manager->send(
-        new HttpResponseEncoder(response, request),
-        true,
-        socket);
+    send(Owned<Encoder>(new HttpResponseEncoder(response, request)));
 
     CHECK_SOME(response.reader);
     http::Pipe::Reader reader = response.reader.get();
@@ -232,7 +267,7 @@ bool HttpProxy::process(const Future<Response>& future, const Request& request)
 
     return false; // Streaming, don't process next response (yet)!
   } else {
-    socket_manager->send(response, request, socket);
+    send(response, request);
   }
 
   return true; // All done, can process next response.
@@ -268,19 +303,17 @@ void HttpProxy::stream(
     }
 
     // Always persist the connection when streaming is not finished.
-    socket_manager->send(
-        new DataEncoder(out.str()),
-        finished ? request->keepAlive : true,
-        socket);
+    send(Owned<Encoder>(new DataEncoder(out.str())),
+         finished ? request->keepAlive : true);
   } else if (chunk.isFailed()) {
     VLOG(1) << "Failed to read from stream: " << chunk.failure();
     // TODO(bmahler): Have to close connection if headers were sent!
-    socket_manager->send(InternalServerError(), *request, socket);
+    send(InternalServerError(), *request);
     finished = true;
   } else {
     VLOG(1) << "Failed to read from stream: discarded";
     // TODO(bmahler): Have to close connection if headers were sent!
-    socket_manager->send(InternalServerError(), *request, socket);
+    send(InternalServerError(), *request);
     finished = true;
   }
 
@@ -289,6 +322,31 @@ void HttpProxy::stream(
     pipe = None();
     next();
   }
+}
+
+
+void HttpProxy::send(Owned<Encoder>&& encoder, bool persist)
+{
+  outgoing.put(std::move(encoder));
+  if (!persist) {
+    outgoing.put(None());
+  }
+}
+
+
+void HttpProxy::send(const Response& response, const Request& request)
+{
+  bool persist = request.keepAlive;
+
+  // Don't persist the connection if the headers include
+  // 'Connection: close'.
+  if (response.headers.contains("Connection")) {
+    if (response.headers.get("Connection").get() == "close") {
+      persist = false;
+    }
+  }
+
+  send(Owned<Encoder>(new HttpResponseEncoder(response, request)), persist);
 }
 
 } // namespace process {
