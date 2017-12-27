@@ -20,12 +20,17 @@
 #include <map>
 #include <sstream>
 
+#include <process/future.hpp>
 #include <process/http.hpp>
+#include <process/loop.hpp>
+#include <process/owned.hpp>
 #include <process/process.hpp>
+#include <process/socket.hpp>
 
 #include <stout/foreach.hpp>
 #include <stout/gzip.hpp>
 #include <stout/hashmap.hpp>
+#include <stout/nothing.hpp>
 #include <stout/numify.hpp>
 #include <stout/os.hpp>
 
@@ -36,6 +41,11 @@ const uint32_t GZIP_MINIMUM_BODY_LENGTH = 1024;
 
 // Forward declarations.
 class Encoder;
+
+// Helper for using the specified `socket` to send data from the
+// specified `encoder`. Returns `Nothing` if all data has been
+// successfully sent otherwise a failure.
+Future<Nothing> send(network::Socket socket, Owned<Encoder> encoder);
 
 
 class Encoder
@@ -279,6 +289,46 @@ private:
   off_t size;
   off_t index;
 };
+
+
+// TODO(benh): Consider moving to encoder.cpp.
+inline Future<Nothing> send(network::Socket socket, Owned<Encoder> encoder)
+{
+  size_t* size = new size_t(0);
+  return loop(
+      None(),
+      [=]() {
+        switch (encoder->kind()) {
+          case Encoder::DATA: {
+            const char* data =
+              static_cast<DataEncoder*>(encoder.get())->next(size);
+            return socket.send(data, *size);
+          }
+          case Encoder::FILE: {
+            off_t offset = 0;
+            int_fd fd =
+              static_cast<FileEncoder*>(encoder.get())->next(&offset, size);
+            return socket.sendfile(fd, offset, *size);
+          }
+        }
+        UNREACHABLE();
+      },
+      [=](size_t length) -> ControlFlow<Nothing> {
+        // Update the encoder with the amount sent.
+        encoder->backup(*size - length);
+
+        // See if there is any more of the message to send.
+        if (encoder->remaining() != 0) {
+          return Continue();
+        }
+
+        return Break();
+      })
+    .onAny([=]() {
+      delete size;
+    });
+}
+
 
 }  // namespace process {
 

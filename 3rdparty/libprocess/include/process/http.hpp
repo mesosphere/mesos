@@ -1309,6 +1309,14 @@ Future<Response> post(
 
 } // namespace streaming {
 
+
+// Helper for using the specified `socket` to send the specified
+// `response` for the specified `request`.
+Future<Nothing> send(
+    network::Socket socket,
+    const Response& response,
+    const Request& request);
+
 } // namespace http {
 } // namespace process {
 

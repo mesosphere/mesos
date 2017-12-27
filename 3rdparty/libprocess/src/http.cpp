@@ -1475,63 +1475,19 @@ Future<Connection> connect(const URL& url)
 
 namespace internal {
 
-Future<Nothing> send(network::Socket socket, Encoder* encoder)
-{
-  size_t* size = new size_t(0);
-  return loop(
-      None(),
-      [=]() {
-        switch (encoder->kind()) {
-          case Encoder::DATA: {
-            const char* data = static_cast<DataEncoder*>(encoder)->next(size);
-            return socket.send(data, *size);
-          }
-          case Encoder::FILE: {
-            off_t offset = 0;
-            int_fd fd = static_cast<FileEncoder*>(encoder)->next(&offset, size);
-            return socket.sendfile(fd, offset, *size);
-          }
-        }
-        UNREACHABLE();
-      },
-      [=](size_t length) -> ControlFlow<Nothing> {
-        // Update the encoder with the amount sent.
-        encoder->backup(*size - length);
-
-        // See if there is any more of the message to send.
-        if (encoder->remaining() != 0) {
-          return Continue();
-        }
-
-        return Break();
-      })
-    .onAny([=]() {
-      delete size;
-    });
-}
-
-
-Future<Nothing> send(
-    network::Socket socket,
+// Helper for creating an `Encoder` from a `Response` and `Request`.
+Owned<Encoder> encode(
     const Response& response,
-    Request* request)
+    const Request& request)
 {
-  CHECK(response.type == Response::BODY ||
-        response.type == Response::NONE);
-
-  Encoder* encoder = new HttpResponseEncoder(response, *request);
-
-  return send(socket, encoder)
-    .onAny([=]() {
-      delete encoder;
-    });
+  return Owned<Encoder>(new HttpResponseEncoder(response, request));
 }
 
 
 Future<Nothing> sendfile(
     network::Socket socket,
     Response response,
-    Request* request)
+    const Request& request)
 {
   CHECK(response.type == Response::PATH);
 
@@ -1546,7 +1502,7 @@ Future<Nothing> sendfile(
     // TODO(benh): VLOG(1)?
     // TODO(benh): Don't send error back as part of InternalServiceError?
     // TODO(benh): Copy headers from `response`?
-    return send(socket, InternalServerError(body), request);
+    return send(socket, encode(InternalServerError(body), request));
   }
 
   const Try<Bytes> size = os::stat::size(fd.get());
@@ -1557,14 +1513,14 @@ Future<Nothing> sendfile(
     // TODO(benh): Don't send error back as part of InternalServiceError?
     // TODO(benh): Copy headers from `response`?
     os::close(fd.get());
-    return send(socket, InternalServerError(body), request);
+    return send(socket, encode(InternalServerError(body), request));
   } else if (os::stat::isdir(fd.get())) {
     const string body = "'" + response.path + "' is a directory";
     // TODO(benh): VLOG(1)?
     // TODO(benh): Don't send error back as part of InternalServiceError?
     // TODO(benh): Copy headers from `response`?
     os::close(fd.get());
-    return send(socket, InternalServerError(body), request);
+    return send(socket, encode(InternalServerError(body), request));
   }
 
   // While the user is expected to properly set a 'Content-Type'
@@ -1573,24 +1529,18 @@ Future<Nothing> sendfile(
 
   // TODO(benh): If this is a TCP socket consider turning on TCP_CORK
   // for both sends and then turning it off.
-  Encoder* encoder = new HttpResponseEncoder(response, *request);
-
-  return send(socket, encoder)
+  return send(socket, encode(response, request))
     .onAny([=](const Future<Nothing>& future) {
-      delete encoder;
-
       // Close file descriptor if we aren't doing any more sending.
       if (future.isDiscarded() || future.isFailed()) {
         os::close(fd.get());
       }
     })
     .then([=]() mutable -> Future<Nothing> {
-      // NOTE: the file descriptor gets closed by FileEncoder.
-      Encoder* encoder = new FileEncoder(fd.get(), size->bytes());
-      return send(socket, encoder)
-        .onAny([=]() {
-          delete encoder;
-        });
+      // NOTE: the file descriptor gets closed by the `FileEncoder`.
+      return send(
+          socket,
+          Owned<Encoder>(new FileEncoder(fd.get(), size->bytes())));
     });
 }
 
@@ -1619,12 +1569,7 @@ Future<Nothing> stream(
           out << "\r\n";
         }
 
-        Encoder* encoder = new DataEncoder(out.str());
-
-        return send(socket, encoder)
-          .onAny([=]() {
-            delete encoder;
-          })
+        return send(socket, Owned<Encoder>(new DataEncoder(out.str())))
           .then([=]() mutable -> ControlFlow<Nothing> {
             if (!finished) {
               return Continue();
@@ -1639,7 +1584,7 @@ Future<Nothing> stream(
 Future<Nothing> stream(
     const network::Socket& socket,
     Response response,
-    Request* request)
+    const Request& request)
 {
   CHECK(response.type == Response::PIPE);
 
@@ -1656,19 +1601,14 @@ Future<Nothing> stream(
     // TODO(benh): VLOG(1)?
     // TODO(benh): Don't send error back as part of InternalServiceError?
     // TODO(benh): Copy headers from `response`?
-    return send(socket, InternalServerError(body), request);
+    return send(socket, encode(InternalServerError(body), request));
   }
 
   // While the user is expected to properly set a 'Content-Type'
   // header, we'll fill in (or overwrite) 'Transfer-Encoding' header.
   response.headers["Transfer-Encoding"] = "chunked";
 
-  Encoder* encoder = new HttpResponseEncoder(response, *request);
-
-  return send(socket, encoder)
-    .onAny([=]() {
-      delete encoder;
-    })
+  return send(socket, encode(response, request))
     .then([=]() {
       return stream(socket, response.reader.get());
     })
@@ -1732,29 +1672,21 @@ Future<Nothing> send(
             // responses due to bugs in the Response passed to us cause
             // us to return a Failure here rather than keep processing
             // more requests/responses?
-            return [&]() {
-              switch (response.type) {
-                case Response::PATH: return sendfile(socket, response, request);
-                case Response::PIPE: return stream(socket, response, request);
-                case Response::BODY:
-                case Response::NONE: return send(socket, response, request);
-              }
-              UNREACHABLE();
-            }()
-            .then([=]() -> ControlFlow<Nothing> {
-              // Persist the connection if the request expects it and
-              // the response doesn't include 'Connection: close'.
-              bool persist = request->keepAlive;
-              if (response.headers.contains("Connection")) {
-                if (response.headers.at("Connection") == "close") {
-                  persist = false;
+            return send(socket, response, *request)
+              .then([=]() -> ControlFlow<Nothing> {
+                // Persist the connection if the request expects it and
+                // the response doesn't include 'Connection: close'.
+                bool persist = request->keepAlive;
+                if (response.headers.contains("Connection")) {
+                  if (response.headers.at("Connection") == "close") {
+                    persist = false;
+                  }
                 }
-              }
-              if (persist) {
-                return Continue();
-              }
-              return Break();
-            });
+                if (persist) {
+                  return Continue();
+                }
+                return Break();
+              });
           })
           .onAny([=]() {
             delete request;
@@ -1931,6 +1863,24 @@ Future<Nothing> serve(
 }
 
 } // namespace internal {
+
+
+Future<Nothing> send(
+    network::Socket socket,
+    const Response& response,
+    const Request& request)
+{
+  switch (response.type) {
+    case Response::PATH:
+      return internal::sendfile(socket, response, request);
+    case Response::PIPE:
+      return internal::stream(socket, response, request);
+    case Response::BODY:
+    case Response::NONE:
+      return send(socket, internal::encode(response, request));
+  }
+  UNREACHABLE();
+}
 
 
 class ServerProcess : public Process<ServerProcess>
