@@ -18,6 +18,7 @@
 #include <process/future.hpp>
 #include <process/gtest.hpp>
 #include <process/loop.hpp>
+#include <process/owned.hpp>
 #include <process/queue.hpp>
 
 using process::Break;
@@ -25,8 +26,13 @@ using process::Continue;
 using process::ControlFlow;
 using process::Future;
 using process::loop;
+using process::Owned;
+using process::ProcessBase;
 using process::Promise;
 using process::Queue;
+using process::spawn;
+using process::terminate;
+using process::UPID;
 
 using std::string;
 
@@ -99,7 +105,7 @@ TEST(LoopTest, DiscardIterate)
       [&]() {
         return promise.future();
       },
-      [&](int i) -> ControlFlow<Nothing> {
+      [](int i) -> ControlFlow<Nothing> {
         return Break();
       });
 
@@ -119,7 +125,7 @@ TEST(LoopTest, DiscardBody)
   promise.future().onDiscard([&]() { promise.discard(); });
 
   Future<Nothing> future = loop(
-      [&]() {
+      []() {
         return 42;
       },
       [&](int i) {
@@ -135,4 +141,106 @@ TEST(LoopTest, DiscardBody)
 
   AWAIT_DISCARDED(future);
   EXPECT_TRUE(promise.future().hasDiscard());
+}
+
+
+TEST(LoopTest, AbandonedIterate)
+{
+  Owned<Promise<int>> promise(new Promise<int>());
+
+  // Need to grab the future to avoid the race with `promise.reset()`
+  // below because the `loop()` will by default be executed on another
+  // process.
+  Future<int> future1 = promise->future();
+
+  Future<Nothing> future2 = loop(
+      [=]() {
+        return future1;
+      },
+      [](int i) -> ControlFlow<Nothing> {
+        return Break();
+      });
+
+  EXPECT_TRUE(future2.isPending());
+
+  promise.reset();
+
+  AWAIT_EXPECT_ABANDONED(future2);
+}
+
+
+TEST(LoopTest, AbandonedBody)
+{
+  Owned<Promise<int>> promise(new Promise<int>());
+
+  // Need to grab the future to avoid the race with `promise.reset()`
+  // below because the `loop()` will by default be executed on another
+  // process.
+  Future<int> future1 = promise->future();
+
+  Future<Nothing> future2 = loop(
+      []() {
+        return 42;
+      },
+      [=](int i) {
+        return future1
+          .then([]() -> ControlFlow<Nothing> {
+            return Break();
+          });
+      });
+
+  EXPECT_TRUE(future2.isPending());
+
+  promise.reset();
+
+  AWAIT_EXPECT_ABANDONED(future2);
+}
+
+
+TEST(LoopTest, PidExitedIterate)
+{
+  Promise<int> promise;
+
+  UPID pid = spawn(new ProcessBase(), true);
+
+  Future<Nothing> future = loop(
+      pid,
+      [&]() {
+        return promise.future();
+      },
+      [](int i) -> ControlFlow<Nothing> {
+        return Break();
+      });
+
+  EXPECT_TRUE(future.isPending());
+
+  terminate(pid);
+
+  AWAIT_EXPECT_ABANDONED(future);
+}
+
+
+TEST(LoopTest, PidExitedBody)
+{
+  Promise<int> promise;
+
+  UPID pid = spawn(new ProcessBase(), true);
+
+  Future<Nothing> future = loop(
+      pid,
+      []() {
+        return 42;
+      },
+      [&](int i) {
+        return promise.future()
+          .then([]() -> ControlFlow<Nothing> {
+            return Break();
+          });
+      });
+
+  EXPECT_TRUE(future.isPending());
+
+  terminate(pid);
+
+  AWAIT_EXPECT_ABANDONED(future);
 }

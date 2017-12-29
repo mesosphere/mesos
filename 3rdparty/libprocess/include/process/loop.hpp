@@ -279,7 +279,13 @@ public:
 
   Future<R> start()
   {
-    auto self = shared();
+    // NOTE: we can't initialize `self` in the constructor because
+    // that will get called _before_ the enclosing `std::shared_ptr`
+    // in `Loop::create()` properly enables us to call
+    // `shared_from_this()`. See the comment above the declaration of
+    // `self` for why we need it in the first place.
+    self = shared();
+
     auto weak_self = weak();
 
     // Propagating discards:
@@ -315,14 +321,25 @@ public:
     });
 
     if (pid.isSome()) {
-      // Start the loop using `pid` as the execution context.
-      dispatch(pid.get(), [self]() {
-        self->run(self->iterate());
-      });
+      // Start a waiter to watch `pid` so if it exits we can clean up.
+      auto waiter = spawn(new Waiter(pid.get(), weak_self), true);
 
-      // TODO(benh): Link with `pid` so that we can discard or abandon
-      // the promise in the event `pid` terminates and didn't discard
-      // us so that we can avoid any leaks (memory or otherwise).
+      // And terminate the waiter once the loop is completed!
+      promise.future()
+        .onAny([waiter]() {
+          terminate(waiter);
+        })
+        .onAbandoned([waiter]() {
+          terminate(waiter);
+        });
+
+      // Start the loop using `pid` as the execution context.
+      dispatch(pid.get(), [weak_self]() {
+        auto self = weak_self.lock();
+        if (self) {
+          self->run(self->iterate());
+        }
+      });
     } else {
       run(iterate());
     }
@@ -332,7 +349,7 @@ public:
 
   void run(Future<T> next)
   {
-    auto self = shared();
+    auto weak_self = weak();
 
     // Reset `discard` so that we're not delaying cleanup of any
     // captured futures longer than necessary.
@@ -352,38 +369,57 @@ public:
           }
           case ControlFlow<R>::Statement::BREAK: {
             promise.set(flow->value());
+            self.reset();
             return;
           }
         }
       } else {
-        auto continuation = [self](const Future<ControlFlow<R>>& flow) {
-          if (flow.isReady()) {
-            switch (flow->statement()) {
-              case ControlFlow<R>::Statement::CONTINUE: {
-                self->run(self->iterate());
-                break;
+        auto continuation = [weak_self](const Future<ControlFlow<R>>& flow) {
+          auto self = weak_self.lock();
+          if (self) {
+            if (flow.isReady()) {
+              switch (flow->statement()) {
+                case ControlFlow<R>::Statement::CONTINUE: {
+                  self->run(self->iterate());
+                  break;
+                }
+                case ControlFlow<R>::Statement::BREAK: {
+                  self->promise.set(flow->value());
+                  self->self.reset();
+                  break;
+                }
               }
-              case ControlFlow<R>::Statement::BREAK: {
-                self->promise.set(flow->value());
-                break;
-              }
+            } else if (flow.isFailed()) {
+              self->promise.fail(flow.failure());
+              self->self.reset();
+            } else if (flow.isDiscarded()) {
+              self->promise.discard();
+              self->self.reset();
             }
-          } else if (flow.isFailed()) {
-            self->promise.fail(flow.failure());
-          } else if (flow.isDiscarded()) {
-            self->promise.discard();
           }
         };
 
+        // TODO(benh): Consider a different implementation strategy
+        // where we only dispatch when we're invoking either `iterate`
+        // or `body`. One of the advantages of this is that we won't
+        // need this `if` here as we'll be able to just add an `if`
+        // inside the continuation.
         if (pid.isSome()) {
           flow.onAny(defer(pid.get(), continuation));
         } else {
           flow.onAny(continuation);
         }
 
+        flow.onAbandoned([weak_self]() {
+          auto self = weak_self.lock();
+          if (self) {
+            self->self.reset();
+          }
+        });
+
         if (!promise.future().hasDiscard()) {
           synchronized (mutex) {
-            self->discard = [=]() mutable { flow.discard(); };
+            discard = [=]() mutable { flow.discard(); };
           }
         }
 
@@ -400,21 +436,37 @@ public:
       }
     }
 
-    auto continuation = [self](const Future<T>& next) {
-      if (next.isReady()) {
-        self->run(next);
-      } else if (next.isFailed()) {
-        self->promise.fail(next.failure());
-      } else if (next.isDiscarded()) {
-        self->promise.discard();
+    auto continuation = [weak_self](const Future<T>& next) {
+      auto self = weak_self.lock();
+      if (self) {
+        if (next.isReady()) {
+          self->run(next);
+        } else if (next.isFailed()) {
+          self->promise.fail(next.failure());
+          self->self.reset();
+        } else if (next.isDiscarded()) {
+          self->promise.discard();
+          self->self.reset();
+        }
       }
     };
 
+    // TODO(benh): See the TODO above for how we can remove this `if`
+    // statement in favor of only dispatching in the continuation
+    // itself.
     if (pid.isSome()) {
       next.onAny(defer(pid.get(), continuation));
+
     } else {
       next.onAny(continuation);
     }
+
+    next.onAbandoned([weak_self]() {
+      auto self = weak_self.lock();
+      if (self) {
+        self->self.reset();
+      }
+    });
 
     if (!promise.future().hasDiscard()) {
       synchronized (mutex) {
@@ -437,10 +489,52 @@ protected:
     : pid(pid), iterate(std::move(iterate)), body(std::move(body)) {}
 
 private:
+  // Helper process that will waits on the process associated with a
+  // user provided `pid` so that we clean up the loop if that process
+  // exits.
+  class Waiter : public Process<Waiter>
+  {
+  public:
+    Waiter(const UPID& pid, const std::weak_ptr<Loop>& weak_loop)
+      : pid(pid), weak_loop(weak_loop) {}
+
+  protected:
+    void initialize() override
+    {
+      Process<Waiter>::link(pid);
+    }
+
+    void exited(const UPID&) override
+    {
+      auto loop = weak_loop.lock();
+      if (loop) {
+        loop->self.reset();
+      }
+      terminate(Process<Waiter>::self());
+    }
+
+  private:
+    UPID pid;
+    std::weak_ptr<Loop> weak_loop;
+  };
+
   const Option<UPID> pid;
   Iterate iterate;
   Body body;
   Promise<R> promise;
+
+  // A circular reference is used in order to keep the loop "alive"
+  // even after we've "returned" from calling/creating it. Originally
+  // we kept the loop alive by capturing a reference to the loop
+  // within the continuations, but this could lead to a situation
+  // where we can never clean up because we need to remove the
+  // reference from within the `Waiter` and we can't do that if it's
+  // captured in the continuation. The tradeoff here is that every
+  // continuation has to upgrade from a weak to shared pointer but
+  // historically we were always doing this on recursive calls to
+  // `run()` so the performance shouldn't be that significantly
+  // different.
+  std::shared_ptr<Loop> self;
 
   // In order to discard the loop safely we capture the future that
   // needs to be discarded within the `discard` function and reading
