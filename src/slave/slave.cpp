@@ -4974,7 +4974,6 @@ void Slave::_statusUpdate(
     }
   }
 
-
   const TaskStatus& status = update.status();
 
   Executor* executor = getExecutor(update.framework_id(), executorId);
@@ -5881,7 +5880,24 @@ void Slave::removeExecutor(Framework* framework, Executor* executor)
 
   os::utime(path); // Update the modification time.
   garbageCollect(path)
-    .onAny(defer(self(), &Self::detachFile, path));
+    .onAny(defer(self(), [=](const Future<Nothing>& future) {
+      detachFile(path);
+
+      if (executor->info.has_type() &&
+          executor->info.type() == ExecutorInfo::DEFAULT) {
+        foreachvalue (const Task* task, executor->launchedTasks) {
+          executor->detachTaskVolumeDirectory(*task);
+        }
+
+        foreachvalue (const Task* task, executor->terminatedTasks) {
+          executor->detachTaskVolumeDirectory(*task);
+        }
+
+        foreach (const shared_ptr<Task>& task, executor->completedTasks) {
+          executor->detachTaskVolumeDirectory(*task);
+        }
+      }
+    }));
 
   // Schedule the top level executor work directory, only if the
   // framework doesn't have any 'pending' tasks for this executor.
@@ -5908,7 +5924,6 @@ void Slave::removeExecutor(Framework* framework, Executor* executor)
       .onAny(defer(self(), [=](const Future<Nothing>& future) {
         detachFile(latestPath);
         detachFile(virtualLatestPath);
-        return Nothing();
       }));
   }
 
@@ -8342,7 +8357,7 @@ Executor* Framework::addExecutor(const ExecutorInfo& executorInfo)
           executorId);
     };
 
-  // We expose the executor's sandbox in the /files endpoints
+  // We expose the executor's sandbox in the /files endpoint
   // via the following paths:
   //
   //  (1) /agent_workdir/frameworks/FID/executors/EID/runs/CID
@@ -8550,7 +8565,7 @@ void Framework::recoverExecutor(
           executorId);
     };
 
-  // We expose the executor's sandbox in the /files endpoints
+  // We expose the executor's sandbox in the /files endpoint
   // via the following paths:
   //
   //  (1) /agent_workdir/frameworks/FID/executors/EID/runs/CID
@@ -8623,7 +8638,24 @@ void Framework::recoverExecutor(
         slave->flags.work_dir, slave->info.id(), id(), state.id, runId);
 
     slave->garbageCollect(path)
-       .onAny(defer(slave, &Slave::detachFile, path));
+      .onAny(defer(slave->self(), [=](const Future<Nothing>& future) {
+        slave->detachFile(path);
+
+        if (executor->info.has_type() &&
+            executor->info.type() == ExecutorInfo::DEFAULT) {
+          foreachvalue (const Task* task, executor->launchedTasks) {
+            executor->detachTaskVolumeDirectory(*task);
+          }
+
+          foreachvalue (const Task* task, executor->terminatedTasks) {
+            executor->detachTaskVolumeDirectory(*task);
+          }
+
+          foreach (const shared_ptr<Task>& task, executor->completedTasks) {
+            executor->detachTaskVolumeDirectory(*task);
+          }
+        }
+      }));
 
     // GC the executor run's meta directory.
     slave->garbageCollect(paths::getExecutorRunPath(
@@ -8926,6 +8958,8 @@ Task* Executor::addLaunchedTask(const TaskInfo& task)
 
   launchedTasks[task.task_id()] = t;
 
+  attachTaskVolumeDirectory(t->resources(), t->task_id());
+
   return t;
 }
 
@@ -8936,6 +8970,17 @@ void Executor::completeTask(const TaskID& taskId)
 
   CHECK(terminatedTasks.contains(taskId))
     << "Failed to find terminated task " << taskId;
+
+  // If `completedTasks` is full and this is a default executor, we need
+  // to detach the volume directory for the first task in `completedTasks`
+  // before pushing a task into it, otherwise, we will never have chance
+  // to do the detach for that task which would be a leak.
+  if (info.has_type() &&
+      info.type() == ExecutorInfo::DEFAULT &&
+      completedTasks.full()) {
+    const shared_ptr<Task>& firstTask = completedTasks.front();
+    detachTaskVolumeDirectory(*firstTask);
+  }
 
   Task* task = terminatedTasks[taskId];
   completedTasks.push_back(shared_ptr<Task>(task));
@@ -9006,6 +9051,8 @@ void Executor::recoverTask(const TaskState& state, bool recheckpointTask)
   }
 
   launchedTasks[state.id] = task;
+
+  attachTaskVolumeDirectory(task->resources(), task->task_id());
 
   // Read updates to get the latest state of the task.
   foreach (const StatusUpdate& update, state.updates) {
@@ -9109,6 +9156,94 @@ bool Executor::incompleteTasks()
   return !queuedTasks.empty() ||
          !launchedTasks.empty() ||
          !terminatedTasks.empty();
+}
+
+
+// TODO(qianzhang): This is a workaround to make the default executor
+// task's volume directory visible in MESOS UI. In MESOS-7225, we made
+// sure a task can access any volumes specified in its disk resources
+// from its sandbox by introducing a workaround to the default executor,
+// i.e., adding a `SANDBOX_PATH` volume with type `PARENT` to the
+// corresponding nested container. This volume gets translated into a
+// bind mount in the nested container's mount namespace, which is is not
+// visible in Mesos UI because it operates in the host namespace. See
+// Mesos-8279 for details.
+//
+// To make the task's volume directory visible in Mesos UI, here we
+// attach the executor's volume directory to it, so when users browse
+// task's volume directory in Mesos UI, what they actually browse is the
+// executor's volume directory. Note when calling `Files::attach()`, the
+// third argument `authorized` is not specified because it is already
+// specified when we do the attach for the executor's sandbox and it also
+// applies to the executor's tasks.
+void Executor::attachTaskVolumeDirectory(
+    const RepeatedPtrField<Resource>& resources,
+    const TaskID& taskId)
+{
+  if (info.has_type() && info.type() == ExecutorInfo::DEFAULT) {
+    foreach (const Resource& resource, resources) {
+      // Ignore if there are no disk resources or if the
+      // disk resources did not specify a volume mapping.
+      if (!resource.has_disk() || !resource.disk().has_volume()) {
+        continue;
+      }
+
+      const Volume& volume = resource.disk().volume();
+
+      const string executorVolumePath =
+        path::join(directory, volume.container_path());
+
+      const string taskPath = paths::getTaskPath(
+          slave->flags.work_dir,
+          slave->info.id(),
+          frameworkId,
+          id,
+          containerId,
+          taskId);
+
+      const string taskVolumePath =
+        path::join(taskPath, volume.container_path());
+
+      slave->files->attach(executorVolumePath, taskVolumePath)
+        .onAny(defer(
+            slave,
+            &Slave::fileAttached,
+            lambda::_1,
+            executorVolumePath,
+            taskVolumePath));
+    }
+  }
+}
+
+
+// TODO(qianzhang): Remove the task's volume directory from the /files
+// endpoint. This is a workaround for MESOS-8279.
+void Executor::detachTaskVolumeDirectory(const Task& task)
+{
+  CHECK(info.has_type() && info.type() == ExecutorInfo::DEFAULT);
+
+  foreach (const Resource& resource, task.resources()) {
+    // Ignore if there are no disk resources or if the
+    // disk resources did not specify a volume mapping.
+    if (!resource.has_disk() || !resource.disk().has_volume()) {
+      continue;
+    }
+
+    const Volume& volume = resource.disk().volume();
+
+    const string taskPath = paths::getTaskPath(
+        slave->flags.work_dir,
+        slave->info.id(),
+        frameworkId,
+        id,
+        containerId,
+        task.task_id());
+
+    const string taskVolumePath =
+      path::join(taskPath, volume.container_path());
+
+    slave->files->detach(taskVolumePath);
+  }
 }
 
 

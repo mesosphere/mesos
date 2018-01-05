@@ -833,6 +833,12 @@ public:
   // Returns true if there are any queued/launched/terminated tasks.
   bool incompleteTasks();
 
+  void attachTaskVolumeDirectory(
+      const google::protobuf::RepeatedPtrField<Resource>& resources,
+      const TaskID& taskId);
+
+  void detachTaskVolumeDirectory(const Task& task);
+
   // Sends a message to the connected executor.
   template <typename Message>
   void send(const Message& message)
