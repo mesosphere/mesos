@@ -2797,6 +2797,8 @@ Future<Response> Http::_waitContainer(
     const Owned<AuthorizationAcceptor>& authorizer,
     const bool deprecated) const
 {
+  LOG(INFO) << "Processing _waitContainer for container " << containerId;
+
   // Attempt to get the executor associated with this ContainerID.
   // We only expect to get the executor when waiting upon a nested container
   // under a container launched via a scheduler. In other cases, we are
@@ -2818,8 +2820,11 @@ Future<Response> Http::_waitContainer(
     }
   }
 
+  LOG(INFO) << "Calling Mesos Containerizer Wait for container " << containerId;
+
   return slave->containerizer->wait(containerId)
     .then([=](const Option<ContainerTermination>& termination) -> Response {
+      LOG(INFO) << "Returning a wait response for container " << containerId;
       if (termination.isNone()) {
         return NotFound(
             "Container " + stringify(containerId) + " cannot be found");

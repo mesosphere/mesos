@@ -2106,6 +2106,8 @@ Future<Connection> MesosContainerizerProcess::attach(
 Future<Option<ContainerTermination>> MesosContainerizerProcess::wait(
     const ContainerID& containerId)
 {
+  LOG(INFO) << "Waiting for the container " << containerId;
+
   if (!containers_.contains(containerId)) {
     // If a container does not exist in our `container_` hashmap, it
     // may be a nested container with checkpointed termination
@@ -2131,6 +2133,9 @@ Future<Option<ContainerTermination>> MesosContainerizerProcess::wait(
     // containers".
     return None();
   }
+
+  LOG(INFO) << "Returning the termination future for the container "
+            << containerId;
 
   // NOTE: Use 'undiscardable' here to make sure discard from the
   // caller does not propagate into 'termination.future()' which will
