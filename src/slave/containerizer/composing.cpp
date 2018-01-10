@@ -326,6 +326,11 @@ Future<Nothing> ComposingContainerizerProcess::__recover(
     container->state = LAUNCHED;
     container->containerizer = containerizer;
     containers_[containerId] = container;
+
+    // This is needed for eventually removing the given container from
+    // the list of active containers.
+    container->containerizer->wait(containerId)
+      .onAny(defer(self(), &Self::_destroy, containerId, lambda::_1));
   }
   return Nothing();
 }
