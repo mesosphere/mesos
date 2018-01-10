@@ -21,6 +21,8 @@
 #include <mesos/resources.hpp>
 #include <mesos/scheduler.hpp>
 
+#include <mesos/authorizer/acls.hpp>
+
 #include <process/clock.hpp>
 #include <process/defer.hpp>
 #include <process/dispatch.hpp>
@@ -570,6 +572,17 @@ int main(int argc, char** argv)
       FrameworkInfo::Capability::RESERVATION_REFINEMENT);
 
   BalloonScheduler scheduler(framework, executor, flags);
+
+  if (flags.master == "local") {
+    // Configure master.
+    os::setenv("MESOS_AUTHENTICATE_FRAMEWORKS", stringify(flags.authenticate));
+
+    ACLs acls;
+    ACL::RegisterFramework* acl = acls.add_register_frameworks();
+    acl->mutable_principals()->set_type(ACL::Entity::ANY);
+    acl->mutable_roles()->add_values("*");
+    os::setenv("MESOS_ACLS", stringify(JSON::protobuf(acls)));
+  }
 
   MesosSchedulerDriver* driver;
 

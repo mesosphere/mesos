@@ -396,12 +396,9 @@ int main(int argc, char** argv)
       flags.role,
       flags.principal);
 
-  // TODO(tillt): Supplying "local" for master is not documented in
-  // the flags description but also not commonly provided by our
-  // example frameworks - we should make this feature consistently
-  // available.
   if (flags.master == "local") {
     // Configure master.
+    os::setenv("MESOS_ROLES", flags.role);
     os::setenv("MESOS_AUTHENTICATE_FRAMEWORKS", stringify(flags.authenticate));
 
     ACLs acls;
