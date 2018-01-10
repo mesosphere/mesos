@@ -47,6 +47,8 @@
 
 #include "logging/logging.hpp"
 
+#include "examples/flags.hpp"
+
 using namespace mesos;
 using namespace mesos::internal;
 
@@ -66,11 +68,11 @@ const double CPUS_PER_EXECUTOR = 0.1;
 const int32_t MEM_PER_EXECUTOR = 64;
 
 constexpr char EXECUTOR_BINARY[] = "balloon-executor";
-constexpr char FRAMEWORK_PRINCIPAL[] = "balloon-framework-cpp";
 constexpr char FRAMEWORK_METRICS_PREFIX[] = "balloon_framework";
 
 
-class Flags : public virtual flags::FlagsBase
+class Flags : public virtual mesos::internal::examples::CheckpointFlags,
+              public virtual mesos::internal::examples::Flags
 {
 public:
   Flags()
@@ -79,10 +81,6 @@ public:
         "name",
         "Name to be used by the framework.",
         "Balloon Framework");
-
-    add(&Flags::master,
-        "master",
-        "Master to connect to.");
 
     add(&Flags::task_memory_usage_limit,
         "task_memory_usage_limit",
@@ -143,11 +141,6 @@ public:
         "The command that should be used to start the executor.\n"
         "This will override the value set by `--build_dir`.");
 
-    add(&Flags::checkpoint,
-        "checkpoint",
-        "Whether this framework should be checkpointed.\n",
-        false);
-
     add(&Flags::long_running,
         "long_running",
         "Whether this framework should launch tasks repeatedly\n"
@@ -156,7 +149,6 @@ public:
   }
 
   string name;
-  string master;
   Bytes task_memory_usage_limit;
   Bytes task_memory;
 
@@ -169,7 +161,6 @@ public:
   Option<JSON::Array> executor_uris;
   Option<string> executor_command;
 
-  bool checkpoint;
   bool long_running;
 };
 
@@ -569,6 +560,7 @@ int main(int argc, char** argv)
 
   FrameworkInfo framework;
   framework.set_user(os::user().get());
+  framework.set_principal(flags.principal);
   framework.set_name(flags.name);
   framework.set_checkpoint(flags.checkpoint);
   framework.add_roles("*");
@@ -581,36 +573,25 @@ int main(int argc, char** argv)
 
   MesosSchedulerDriver* driver;
 
-  // TODO(josephw): Refactor these into a common set of flags.
-  Option<string> value = os::getenv("MESOS_AUTHENTICATE_FRAMEWORKS");
-  if (value.isSome()) {
+  if (flags.authenticate) {
     LOG(INFO) << "Enabling authentication for the framework";
 
-    value = os::getenv("DEFAULT_PRINCIPAL");
-    if (value.isNone()) {
-      EXIT(EXIT_FAILURE)
-        << "Expecting authentication principal in the environment";
-    }
-
     Credential credential;
-    credential.set_principal(value.get());
-
-    framework.set_principal(value.get());
-
-    value = os::getenv("DEFAULT_SECRET");
-    if (value.isNone()) {
-      EXIT(EXIT_FAILURE)
-        << "Expecting authentication secret in the environment";
+    credential.set_principal(flags.principal);
+    if (flags.secret.isSome()) {
+      credential.set_secret(flags.secret.get());
     }
-
-    credential.set_secret(value.get());
 
     driver = new MesosSchedulerDriver(
-        &scheduler, framework, flags.master, credential);
+        &scheduler,
+        framework,
+        flags.master,
+        credential);
   } else {
-    framework.set_principal(FRAMEWORK_PRINCIPAL);
-
-    driver = new MesosSchedulerDriver(&scheduler, framework, flags.master);
+    driver = new MesosSchedulerDriver(
+        &scheduler,
+        framework,
+        flags.master);
   }
 
   int status = driver->run() == DRIVER_STOPPED ? 0 : 1;

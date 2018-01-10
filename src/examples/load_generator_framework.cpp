@@ -32,6 +32,8 @@
 #include "logging/flags.hpp"
 #include "logging/logging.hpp"
 
+#include "examples/flags.hpp"
+
 using namespace mesos;
 using namespace process;
 
@@ -226,36 +228,13 @@ private:
 };
 
 
-class Flags : public virtual mesos::internal::logging::Flags
+class Flags : public virtual mesos::internal::examples::CheckpointFlags,
+              public virtual mesos::internal::examples::Flags,
+              public virtual mesos::internal::logging::Flags
 {
 public:
   Flags()
   {
-    add(&Flags::master,
-        "master",
-        "Required. The master to connect to. May be one of:\n"
-        "  master@addr:port (The PID of the master)\n"
-        "  zk://host1:port1,host2:port2,.../path\n"
-        "  zk://username:password@host1:port1,host2:port2,.../path\n"
-        "  file://path/to/file (where file contains one of the above)");
-
-    add(&Flags::authenticate,
-        "authenticate",
-        "Set to 'true' to enable framework authentication",
-        false);
-
-    add(&Flags::principal,
-        "principal",
-        "The principal used to identify this framework",
-        "load-generator-framework");
-
-    add(&Flags::secret,
-        "secret",
-        "The secret used to authenticate this framework.\n"
-        "If the value starts with '/' or 'file://' it will be parsed as the\n"
-        "path to a file containing the secret. Otherwise the string value is\n"
-        "treated as the secret");
-
     add(&Flags::qps,
         "qps",
         "Required. Generate load at this specified rate (queries per second).\n"
@@ -273,10 +252,6 @@ public:
         "forever as long as it is connected to the master");
   }
 
-  Option<string> master;
-  string principal;
-  Option<string> secret;
-  bool authenticate;
   Option<double> qps;
   Option<Duration> duration;
 };
@@ -295,11 +270,6 @@ int main(int argc, char** argv)
   if (flags.help) {
     cout << flags.usage() << endl;
     return EXIT_SUCCESS;
-  }
-
-  if (flags.master.isNone()) {
-    cerr << flags.usage("Missing required option --master") << endl;
-    return EXIT_FAILURE;
   }
 
   if (flags.qps.isNone()) {
@@ -324,40 +294,32 @@ int main(int argc, char** argv)
 
   FrameworkInfo framework;
   framework.set_user(""); // Have Mesos fill in the current user.
+  framework.set_principal(flags.principal);
   framework.set_name(FRAMEWORK_NAME);
   framework.add_capabilities()->set_type(
       FrameworkInfo::Capability::RESERVATION_REFINEMENT);
-
-  const Option<string> checkpoint = os::getenv("MESOS_CHECKPOINT");
-  if (checkpoint.isSome()) {
-    framework.set_checkpoint(
-        numify<bool>(checkpoint.get()).get());
-  }
+  framework.set_checkpoint(flags.checkpoint);
 
   MesosSchedulerDriver* driver;
   if (flags.authenticate) {
     cout << "Enabling authentication for the framework" << endl;
 
-    if (flags.secret.isNone()) {
-      cerr << "Expecting --secret when --authenticate is set" << endl;
-      return EXIT_FAILURE;
-    }
-
-    string secret = flags.secret.get();
-
     Credential credential;
     credential.set_principal(flags.principal);
-    credential.set_secret(strings::trim(secret));
-
-    framework.set_principal(flags.principal);
+    if (flags.secret.isSome()) {
+      credential.set_secret(flags.secret.get());
+    }
 
     driver = new MesosSchedulerDriver(
-        &scheduler, framework, flags.master.get(), credential);
+        &scheduler,
+        framework,
+        flags.master,
+        credential);
   } else {
-    framework.set_principal(flags.principal);
-
     driver = new MesosSchedulerDriver(
-        &scheduler, framework, flags.master.get());
+        &scheduler,
+        framework,
+        flags.master);
   }
 
   int status = driver->run() == DRIVER_STOPPED ? EXIT_SUCCESS : EXIT_FAILURE;

@@ -49,6 +49,8 @@
 #include "logging/flags.hpp"
 #include "logging/logging.hpp"
 
+#include "examples/flags.hpp"
+
 using namespace mesos::v1;
 
 using std::cerr;
@@ -396,18 +398,10 @@ void usage(const char* argv0, const flags::FlagsBase& flags)
 }
 
 
-class Flags : public virtual mesos::internal::logging::Flags
-{
-public:
-  Flags()
-  {
-    add(&Flags::role, "role", "Role to use when registering", "*");
-    add(&Flags::master, "master", "ip:port of master to connect");
-  }
-
-  string role;
-  Option<string> master;
-};
+class Flags : public virtual mesos::internal::examples::CheckpointFlags,
+              public virtual mesos::internal::examples::Flags,
+              public virtual mesos::internal::examples::RoleFlags,
+              public virtual mesos::internal::logging::Flags {};
 
 
 int main(int argc, char** argv)
@@ -436,11 +430,6 @@ int main(int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  if (flags.master.isNone()) {
-    cerr << flags.usage("Missing --master") << endl;
-    return EXIT_FAILURE;
-  }
-
   mesos::internal::logging::initialize(argv[0], true, flags); // Catch signals.
 
   // Log any flag warnings.
@@ -449,7 +438,9 @@ int main(int argc, char** argv)
   }
 
   FrameworkInfo framework;
+  framework.set_principal(flags.principal);
   framework.set_name(FRAMEWORK_NAME);
+  framework.set_checkpoint(flags.checkpoint);
   framework.add_roles(flags.role);
   framework.add_capabilities()->set_type(
       FrameworkInfo::Capability::MULTI_ROLE);
@@ -461,26 +452,13 @@ int main(int argc, char** argv)
   CHECK_SOME(user);
   framework.set_user(user.get());
 
-  value = os::getenv("MESOS_CHECKPOINT");
-  if (value.isSome()) {
-    framework.set_checkpoint(numify<bool>(value.get()).get());
-  }
-
   ExecutorInfo executor;
   executor.mutable_executor_id()->set_value("default");
   executor.mutable_command()->set_value(uri);
   executor.set_name(EXECUTOR_NAME);
 
-  value = os::getenv("DEFAULT_PRINCIPAL");
-  if (value.isNone()) {
-    EXIT(EXIT_FAILURE)
-      << "Expecting authentication principal in the environment";
-  }
-
-  framework.set_principal(value.get());
-
   process::Owned<HTTPScheduler> scheduler(
-      new HTTPScheduler(framework, executor, flags.master.get()));
+      new HTTPScheduler(framework, executor, flags.master));
 
   process::spawn(scheduler.get());
   process::wait(scheduler.get());

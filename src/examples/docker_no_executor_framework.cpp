@@ -25,6 +25,8 @@
 #include <stout/option.hpp>
 #include <stout/os.hpp>
 
+#include "examples/flags.hpp"
+
 using namespace mesos;
 
 using boost::lexical_cast;
@@ -40,7 +42,6 @@ const int32_t CPUS_PER_TASK = 1;
 const int32_t MEM_PER_TASK = 32;
 
 constexpr char FRAMEWORK_NAME[] = "Docker No Executor Framework (C++)";
-constexpr char FRAMEWORK_PRINCIPAL[] = "no-executor-framework-cpp";
 
 
 class DockerNoExecutorScheduler : public Scheduler
@@ -173,51 +174,55 @@ private:
 };
 
 
+class Flags : public virtual mesos::internal::examples::Flags {};
+
+
 int main(int argc, char** argv)
 {
-  if (argc != 2) {
-    cerr << "Usage: " << argv[0] << " <master>" << endl;
-    return -1;
+  Flags flags;
+  Try<flags::Warnings> load = flags.load("MESOS_EXAMPLE_", argc, argv);
+
+  if (flags.help) {
+    std::cout << flags.usage() << std::endl;
+    return EXIT_SUCCESS;
+  }
+
+  if (load.isError()) {
+    std::cerr << flags.usage(load.error()) << std::endl;
+    return EXIT_FAILURE;
   }
 
   DockerNoExecutorScheduler scheduler;
 
   FrameworkInfo framework;
   framework.set_user(""); // Have Mesos fill in the current user.
+  framework.set_principal(flags.principal);
   framework.set_name(FRAMEWORK_NAME);
   framework.set_checkpoint(true);
   framework.add_capabilities()->set_type(
       FrameworkInfo::Capability::RESERVATION_REFINEMENT);
 
   MesosSchedulerDriver* driver;
-  if (os::getenv("MESOS_EXAMPLE_AUTHENTICATE").isSome()) {
+
+  if (flags.authenticate) {
     cout << "Enabling authentication for the framework" << endl;
 
-    Option<string> value = os::getenv("MESOS_EXAMPLE_PRINCIPAL");
-    if (value.isNone()) {
-      EXIT(EXIT_FAILURE)
-        << "Expecting authentication principal in the environment";
-    }
-
     Credential credential;
-    credential.set_principal(value.get());
-
-    framework.set_principal(value.get());
-
-    value = os::getenv("MESOS_EXAMPLE_SECRET");
-    if (value.isNone()) {
-      EXIT(EXIT_FAILURE)
-        << "Expecting authentication secret in the environment";
+    credential.set_principal(flags.principal);
+    if (flags.secret.isSome()) {
+      credential.set_secret(flags.secret.get());
     }
-
-    credential.set_secret(value.get());
 
     driver = new MesosSchedulerDriver(
-        &scheduler, framework, argv[1], credential);
+        &scheduler,
+        framework,
+        argv[1],
+        credential);
   } else {
-    framework.set_principal(FRAMEWORK_PRINCIPAL);
-
-    driver = new MesosSchedulerDriver(&scheduler, framework, argv[1]);
+    driver = new MesosSchedulerDriver(
+        &scheduler,
+        framework,
+        argv[1]);
   }
 
   int status = driver->run() == DRIVER_STOPPED ? 0 : 1;
