@@ -578,16 +578,34 @@ int main(int argc, char** argv)
     os::setenv("MESOS_DEFAULT_ROLE", flags.role);
   }
 
+  MesosSchedulerDriver* driver;
+
   PersistentVolumeScheduler scheduler(
       framework,
       flags.num_shards,
       flags.num_shared_shards,
       flags.tasks_per_shard);
 
-  MesosSchedulerDriver* driver = new MesosSchedulerDriver(
-      &scheduler,
-      framework,
-      flags.master);
+  if (flags.authenticate) {
+    LOG(INFO) << "Enabling authentication for the framework";
+
+    Credential credential;
+    credential.set_principal(flags.principal);
+    if (flags.secret.isSome()) {
+      credential.set_secret(flags.secret.get());
+    }
+
+    driver = new MesosSchedulerDriver(
+        &scheduler,
+        framework,
+        flags.master,
+        credential);
+  } else {
+    driver = new MesosSchedulerDriver(
+        &scheduler,
+        framework,
+        flags.master);
+  }
 
   int status = driver->run() == DRIVER_STOPPED ? EXIT_SUCCESS : EXIT_FAILURE;
 

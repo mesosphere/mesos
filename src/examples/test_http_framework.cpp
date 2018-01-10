@@ -78,24 +78,13 @@ class HTTPScheduler : public process::Process<HTTPScheduler>
 public:
   HTTPScheduler(const FrameworkInfo& _framework,
                 const ExecutorInfo& _executor,
-                const string& _master)
-    : framework(_framework),
-      role(_framework.roles(0)),
-      executor(_executor),
-      master(_master),
-      state(INITIALIZING),
-      tasksLaunched(0),
-      tasksFinished(0),
-      totalTasks(5) {}
-
-  HTTPScheduler(const FrameworkInfo& _framework,
-                const ExecutorInfo& _executor,
                 const string& _master,
-                const Credential& credential)
+                const Option<Credential>& _credential)
     : framework(_framework),
       role(_framework.roles(0)),
       executor(_executor),
       master(_master),
+      credential(_credential),
       state(INITIALIZING),
       tasksLaunched(0),
       tasksFinished(0),
@@ -226,7 +215,7 @@ protected:
             process::defer(self(), &Self::connected),
             process::defer(self(), &Self::disconnected),
             process::defer(self(), &Self::received, lambda::_1),
-            None()));
+            credential));
   }
 
 private:
@@ -374,6 +363,7 @@ private:
   const string role;
   const ExecutorInfo executor;
   const string master;
+  const Option<Credential> credential;
   process::Owned<scheduler::Mesos> mesos;
 
   enum State
@@ -457,8 +447,21 @@ int main(int argc, char** argv)
   executor.mutable_command()->set_value(uri);
   executor.set_name(EXECUTOR_NAME);
 
+  Option<Credential> credential = None();
+
+  if (flags.authenticate) {
+    LOG(INFO) << "Enabling authentication for the framework";
+
+    Credential credential_;
+    credential_.set_principal(flags.principal);
+    if (flags.secret.isSome()) {
+      credential_.set_secret(flags.secret.get());
+    }
+    credential = credential_;
+  }
+
   process::Owned<HTTPScheduler> scheduler(
-      new HTTPScheduler(framework, executor, flags.master));
+      new HTTPScheduler(framework, executor, flags.master, credential));
 
   process::spawn(scheduler.get());
   process::wait(scheduler.get());

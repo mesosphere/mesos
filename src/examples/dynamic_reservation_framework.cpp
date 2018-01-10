@@ -402,7 +402,7 @@ int main(int argc, char** argv)
   // available.
   if (flags.master == "local") {
     // Configure master.
-    os::setenv("MESOS_AUTHENTICATE_FRAMEWORKS", "false");
+    os::setenv("MESOS_AUTHENTICATE_FRAMEWORKS", stringify(flags.authenticate));
 
     ACLs acls;
     ACL::RegisterFramework* acl = acls.add_register_frameworks();
@@ -411,10 +411,28 @@ int main(int argc, char** argv)
     os::setenv("MESOS_ACLS", stringify(JSON::protobuf(acls)));
   }
 
-  MesosSchedulerDriver* driver = new MesosSchedulerDriver(
-      &scheduler,
-      framework,
-      flags.master);
+  MesosSchedulerDriver* driver;
+
+  if (flags.authenticate) {
+    LOG(INFO) << "Enabling authentication for the framework";
+
+    Credential credential;
+    credential.set_principal(flags.principal);
+    if (flags.secret.isSome()) {
+      credential.set_secret(flags.secret.get());
+    }
+
+    driver = new MesosSchedulerDriver(
+        &scheduler,
+        framework,
+        flags.master,
+        credential);
+  } else {
+    driver = new MesosSchedulerDriver(
+        &scheduler,
+        framework,
+        flags.master);
+  }
 
   int status = driver->run() == DRIVER_STOPPED ? 0 : 1;
 
