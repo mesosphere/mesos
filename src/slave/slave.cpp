@@ -5881,7 +5881,7 @@ void Slave::removeExecutor(Framework* framework, Executor* executor)
 
   os::utime(path); // Update the modification time.
   garbageCollect(path)
-    .then(defer(self(), &Self::detachFile, path));
+    .onAny(defer(self(), &Self::detachFile, path));
 
   // Schedule the top level executor work directory, only if the
   // framework doesn't have any 'pending' tasks for this executor.
@@ -5905,7 +5905,7 @@ void Slave::removeExecutor(Framework* framework, Executor* executor)
 
     os::utime(path); // Update the modification time.
     garbageCollect(path)
-      .then(defer(self(), [=]() {
+      .onAny(defer(self(), [=](const Future<Nothing>& future) {
         detachFile(latestPath);
         detachFile(virtualLatestPath);
         return Nothing();
@@ -8623,7 +8623,7 @@ void Framework::recoverExecutor(
         slave->flags.work_dir, slave->info.id(), id(), state.id, runId);
 
     slave->garbageCollect(path)
-       .then(defer(slave, &Slave::detachFile, path));
+       .onAny(defer(slave, &Slave::detachFile, path));
 
     // GC the executor run's meta directory.
     slave->garbageCollect(paths::getExecutorRunPath(
@@ -8632,7 +8632,7 @@ void Framework::recoverExecutor(
     // GC the top level executor work directory.
     slave->garbageCollect(paths::getExecutorPath(
         slave->flags.work_dir, slave->info.id(), id(), state.id))
-        .then(defer(slave, &Slave::detachFile, latestPath));
+        .onAny(defer(slave, &Slave::detachFile, latestPath));
 
     // GC the top level executor meta directory.
     slave->garbageCollect(paths::getExecutorPath(
