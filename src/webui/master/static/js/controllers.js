@@ -550,7 +550,7 @@
 
 
   mesosApp.controller('HomeCtrl', function($dialog, $scope) {
-    $scope.log = function(_$event) {
+    $scope.streamLogs = function(_$event) {
       if (!$scope.state.external_log_file && !$scope.state.log_dir) {
         $dialog.messageBox(
           'Logging to a file is not enabled',
@@ -658,7 +658,7 @@
 
       var agent = $scope.agents[$routeParams.agent_id];
 
-      $scope.log = function(_$event) {
+      $scope.streamLogs = function(_$event) {
         if (!$scope.state.external_log_file && !$scope.state.log_dir) {
           $dialog.messageBox(
             'Logging to a file is not enabled',
