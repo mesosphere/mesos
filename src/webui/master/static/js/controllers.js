@@ -63,6 +63,18 @@
     return url;
   }
 
+  function createFileHyperlink(fileData, fileType, linkName) {
+    var file = new Blob([fileData], { type : fileType });
+
+    var fileURL = URL.createObjectURL(file);
+    var hyperlink = document.createElement('a');
+    hyperlink.href = fileURL;
+    hyperlink.target = '_blank';
+    hyperlink.download = linkName;
+
+    return hyperlink;
+  }
+
   // Invokes the pailer, building the endpoint URL with the specified urlPrefix
   // and path.
   function pailer(urlPrefix, path, window_title) {
@@ -550,11 +562,30 @@
 
 
   mesosApp.controller('HomeCtrl', function($dialog, $scope) {
+    $scope.downloadLogs = function(_$event) {
+      if (!$scope.state.external_log_file && !$scope.state.log_dir) {
+        $dialog.messageBox(
+          'Logging to a file is not enabled',
+          "Set the 'external_log_file' or 'log_dir' option if you wish to download the logs.",
+          [{label: 'Continue'}]
+        ).open();
+      } else {
+        var host = '//' + $scope.$location.host() + ':' + $scope.$location.port();
+
+        $.get(host + '/files/download?path=/master/log', function(data) {
+          var logsName = 'mesos-master-' + $scope.$location.host() + '.log';
+          var logsLink = createFileHyperlink(data, 'text/plain', logsName)
+          document.body.appendChild(logsLink);
+          logsLink.click();
+        });
+      }
+    };
+
     $scope.streamLogs = function(_$event) {
       if (!$scope.state.external_log_file && !$scope.state.log_dir) {
         $dialog.messageBox(
           'Logging to a file is not enabled',
-          "Set the 'external_log_file' or 'log_dir' option if you wish to access the logs.",
+          "Set the 'external_log_file' or 'log_dir' option if you wish to stream the logs.",
           [{label: 'Continue'}]
         ).open();
       } else {
@@ -658,11 +689,33 @@
 
       var agent = $scope.agents[$routeParams.agent_id];
 
+      $scope.downloadLogs = function(_$event) {
+        if (!$scope.state.external_log_file && !$scope.state.log_dir) {
+          $dialog.messageBox(
+            'Logging to a file is not enabled',
+            "Set the 'external_log_file' or 'log_dir' option if you wish to download the logs.",
+            [{label: 'Continue'}]
+          ).open();
+        } else {
+          // We have to set the offset otherwise the request will not return.
+          // Notice the 'jsonp=?' added to do Cross Origin Resource Sharing.
+          var logs = agentURLPrefix(agent, false) + '/files/read?path=/slave/log&offset=0&jsonp=?';
+
+          // We use $.getJSON instead of $.get to use JSONP.
+          $.getJSON(logs, function(json) {
+            var logsName = 'mesos-agent-' + $scope.$location.host() + '.log';
+            var logsLink = createFileHyperlink(json.data, 'text/plain', logsName);
+            document.body.appendChild(logsLink);
+            logsLink.click();
+          });
+        }
+      };
+
       $scope.streamLogs = function(_$event) {
         if (!$scope.state.external_log_file && !$scope.state.log_dir) {
           $dialog.messageBox(
             'Logging to a file is not enabled',
-            "Set the 'external_log_file' or 'log_dir' option if you wish to access the logs.",
+            "Set the 'external_log_file' or 'log_dir' option if you wish to stream the logs.",
             [{label: 'Continue'}]
           ).open();
         } else {

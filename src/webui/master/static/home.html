@@ -45,7 +45,17 @@
         </dd>
       </dl>
 
-      <p><a href="" ng-click="streamLogs($event)">Stream logs</a></p>
+      <p>
+        <b>Logs:</b>
+        <span class="btn-group">
+          <button type="button" class="btn btn-xs btn-default" ng-click="downloadLogs($event)">
+            Download
+          </button>
+          <button type="button" class="btn btn-xs btn-default" ng-click="streamLogs($event)">
+            Stream
+          </button>
+        </span>
+      </p>
 
       <h4>Agents</h4>
       <table class="table table-condensed">
