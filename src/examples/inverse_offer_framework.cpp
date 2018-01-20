@@ -19,6 +19,8 @@
 #include <vector>
 #include <queue>
 
+#include <mesos/authorizer/acls.hpp>
+
 #include <mesos/v1/mesos.hpp>
 #include <mesos/v1/resources.hpp>
 #include <mesos/v1/scheduler.hpp>
@@ -47,7 +49,12 @@
 #include <stout/option.hpp>
 #include <stout/os.hpp>
 #include <stout/path.hpp>
+#include <stout/protobuf.hpp>
 #include <stout/stringify.hpp>
+
+#include "examples/flags.hpp"
+
+#include "logging/logging.hpp"
 
 using namespace mesos::v1;
 
@@ -85,10 +92,12 @@ public:
   InverseOfferScheduler(
       const FrameworkInfo& _framework,
       const std::string& _master,
-      const uint32_t _num_tasks)
+      const uint32_t _num_tasks,
+      const Option<Credential>& _credential)
     : framework(_framework),
       master(_master),
       num_tasks(_num_tasks),
+      credential(_credential),
       tasks_launched(0),
       state(DISCONNECTED),
       metrics(*this)
@@ -109,7 +118,7 @@ protected:
         process::defer(self(), &Self::connected),
         process::defer(self(), &Self::disconnected),
         process::defer(self(), &Self::received, lambda::_1),
-        None()));
+        credential));
   }
 
   void connected()
@@ -446,6 +455,7 @@ private:
   FrameworkInfo framework;
   const std::string master;
   const uint32_t num_tasks;
+  const Option<Credential> credential;
 
   // Agents which currently hold a sleep task.
   hashmap<AgentID, SleeperInfo> sleepers;
@@ -535,20 +545,11 @@ private:
 };
 
 
-class Flags : public flags::FlagsBase
+class Flags : public virtual mesos::internal::examples::Flags
 {
 public:
   Flags()
   {
-    add(&Flags::role,
-        "role",
-        "Role to use when registering.",
-        "*");
-
-    add(&Flags::master,
-        "master",
-        "Master to connect to.");
-
     add(&Flags::num_tasks,
         "num_tasks",
         "Number of sleep tasks to run at once. Each task is started on\n"
@@ -562,28 +563,29 @@ public:
 
           return None();
         });
-
-    add(&Flags::checkpoint,
-        "checkpoint",
-        "Whether this framework should be checkpointed.",
-        false);
   }
 
-  std::string role;
-  std::string master;
   int num_tasks;
-  bool checkpoint;
 };
 
 
 int main(int argc, char** argv)
 {
   Flags flags;
-  Try<flags::Warnings> load = flags.load(None(), argc, argv);
+
+  Try<flags::Warnings> load = flags.load("MESOS_EXAMPLE_", argc, argv);
+
+  if (flags.help) {
+    std::cout << flags.usage() << std::endl;
+    return EXIT_SUCCESS;
+  }
 
   if (load.isError()) {
-    EXIT(EXIT_FAILURE) << flags.usage(load.error());
+    std::cerr << flags.usage(load.error()) << std::endl;
+    return EXIT_FAILURE;
   }
+
+  mesos::internal::logging::initialize(argv[0], true, flags); // Catch signals.
 
   // Log any flag warnings.
   foreach (const flags::Warning& warning, load->warnings) {
@@ -599,8 +601,41 @@ int main(int argc, char** argv)
   framework.add_capabilities()->set_type(
       FrameworkInfo::Capability::RESERVATION_REFINEMENT);
 
-  process::Owned<InverseOfferScheduler> scheduler(
-      new InverseOfferScheduler(framework, flags.master, flags.num_tasks));
+  Option<Credential> credential = None();
+
+  if (flags.authenticate) {
+    LOG(INFO) << "Enabling authentication for the framework";
+
+    Credential credential_;
+    credential_.set_principal(flags.principal);
+    if (flags.secret.isSome()) {
+      credential_.set_secret(flags.secret.get());
+    }
+    credential = credential_;
+  }
+
+  if (flags.master == "local") {
+    // Configure master.
+    os::setenv("MESOS_ROLES", flags.role);
+
+    os::setenv(
+        "MESOS_AUTHENTICATE_HTTP_FRAMEWORKS",
+        stringify(flags.authenticate));
+
+    os::setenv("MESOS_HTTP_FRAMEWORK_AUTHENTICATORS", "basic");
+
+    mesos::ACLs acls;
+    mesos::ACL::RegisterFramework* acl = acls.add_register_frameworks();
+    acl->mutable_principals()->set_type(mesos::ACL::Entity::ANY);
+    acl->mutable_roles()->add_values(flags.role);
+    os::setenv("MESOS_ACLS", stringify(JSON::protobuf(acls)));
+  }
+
+  process::Owned<InverseOfferScheduler> scheduler(new InverseOfferScheduler(
+      framework,
+      flags.master,
+      flags.num_tasks,
+      credential));
 
   process::spawn(scheduler.get());
   process::wait(scheduler.get());
