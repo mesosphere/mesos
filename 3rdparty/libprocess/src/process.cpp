@@ -247,6 +247,8 @@ struct Flags : public virtual flags::FlagsBase
         "libprocess is listening may not match the address from\n"
         "which libprocess connects to other actors.\n",
         false);
+
+    add(&Flags::memory_profiling
   }
 
   Option<net::IP> ip;
@@ -255,6 +257,7 @@ struct Flags : public virtual flags::FlagsBase
   Option<int> port;
   Option<int> advertise_port;
   bool require_peer_address_ip_match;
+  bool memory_profiling;
 };
 
 } // namespace internal {
