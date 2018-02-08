@@ -1069,6 +1069,73 @@ void Slave::attachTaskVolumeDirectory(
           executorVolumePath,
           taskVolumePath));
   }
+
+  hashset<string> executorContainerPaths;
+  foreach (const Resource& resource, executorInfo.resources()) {
+      // Ignore if there are no disk resources or if the
+      // disk resources did not specify a volume mapping.
+      if (!resource.has_disk() || !resource.disk().has_volume()) {
+        continue;
+      }
+
+      const Volume& volume = resource.disk().volume();
+      executorContainerPaths.insert(volume.container_path());
+  }
+
+  if (executorContainerPaths.empty()) {
+    return;
+  }
+
+  if (task.has_container()) {
+    foreach (const Volume& volume, task.container().volumes()) {
+      if (!volume.has_source() ||
+          volume.source().type() != Volume::Source::SANDBOX_PATH) {
+        continue;
+      }
+
+      CHECK(volume.source().has_sandbox_path());
+
+      const Volume::Source::SandboxPath& sandboxPath =
+        volume.source().sandbox_path();
+
+      if (sandboxPath.type() != Volume::Source::SandboxPath::PARENT) {
+        continue;
+      }
+
+      if (!executorContainerPaths.contains(sandboxPath.path())) {
+        continue;
+      }
+
+      const string executorDirectory = paths::getExecutorRunPath(
+          flags.work_dir,
+          info.id(),
+          task.framework_id(),
+          task.executor_id(),
+          executorContainerId);
+
+      const string executorVolumePath =
+        path::join(executorDirectory, sandboxPath.path());
+
+      const string taskPath = paths::getTaskPath(
+          flags.work_dir,
+          info.id(),
+          task.framework_id(),
+          task.executor_id(),
+          executorContainerId,
+          task.task_id());
+
+      const string taskVolumePath =
+        path::join(taskPath, volume.container_path());
+
+      files->attach(executorVolumePath, taskVolumePath)
+        .onAny(defer(
+            self(),
+            &Self::fileAttached,
+            lambda::_1,
+            executorVolumePath,
+            taskVolumePath));
+    }
+  }
 }
 
 
@@ -1082,6 +1149,18 @@ void Slave::detachTaskVolumeDirectories(
   CHECK(tasks.empty() ||
         (executorInfo.has_type() &&
          executorInfo.type() == ExecutorInfo::DEFAULT));
+
+  hashset<string> executorContainerPaths;
+  foreach (const Resource& resource, executorInfo.resources()) {
+      // Ignore if there are no disk resources or if the
+      // disk resources did not specify a volume mapping.
+      if (!resource.has_disk() || !resource.disk().has_volume()) {
+        continue;
+      }
+
+      const Volume& volume = resource.disk().volume();
+      executorContainerPaths.insert(volume.container_path());
+  }
 
   foreach (const Task& task, tasks) {
     CHECK_EQ(task.executor_id(), executorInfo.executor_id());
@@ -1107,6 +1186,45 @@ void Slave::detachTaskVolumeDirectories(
         path::join(taskPath, volume.container_path());
 
       files->detach(taskVolumePath);
+    }
+
+    if (executorContainerPaths.empty()) {
+      continue;
+    }
+
+    if (task.has_container()) {
+      foreach (const Volume& volume, task.container().volumes()) {
+        if (!volume.has_source() ||
+            volume.source().type() != Volume::Source::SANDBOX_PATH) {
+          continue;
+        }
+
+        CHECK(volume.source().has_sandbox_path());
+
+        const Volume::Source::SandboxPath& sandboxPath =
+          volume.source().sandbox_path();
+
+        if (sandboxPath.type() != Volume::Source::SandboxPath::PARENT) {
+          continue;
+        }
+
+        if (!executorContainerPaths.contains(sandboxPath.path())) {
+          continue;
+        }
+
+        const string taskPath = paths::getTaskPath(
+            flags.work_dir,
+            info.id(),
+            task.framework_id(),
+            task.executor_id(),
+            executorContainerId,
+            task.task_id());
+
+        const string taskVolumePath =
+          path::join(taskPath, volume.container_path());
+
+        files->detach(taskVolumePath);
+      }
     }
   }
 }
