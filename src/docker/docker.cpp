@@ -1193,7 +1193,8 @@ Future<Nothing> Docker::stop(
         containerName,
         cmd,
         s.get(),
-        remove));
+        remove))
+    .onDiscard(lambda::bind(&commandDiscarded, s.get(), cmd));
 }
 
 
@@ -1278,7 +1279,8 @@ Future<Docker::Container> Docker::inspect(
   const string cmd = path + " -H " + socket + " inspect " + containerName;
   _inspect(cmd, promise, retryInterval);
 
-  return promise->future();
+  return promise->future()
+    .onDiscard([&promise]() { promise->discard(); });
 }
 
 
@@ -1288,7 +1290,6 @@ void Docker::_inspect(
     const Option<Duration>& retryInterval)
 {
   if (promise->future().hasDiscard()) {
-    promise->discard();
     return;
   }
 
@@ -1308,10 +1309,14 @@ void Docker::_inspect(
   // Start reading from stdout so writing to the pipe won't block
   // to handle cases where the output is larger than the pipe
   // capacity.
-  const Future<string> output = io::read(s.get().out().get());
+  Future<string> output = io::read(s.get().out().get());
 
   s.get().status()
     .onAny([=]() { __inspect(cmd, promise, retryInterval, output, s.get()); });
+
+  promise->future()
+    .onDiscard([output]() mutable { output.discard(); })
+    .onDiscard(lambda::bind(&commandDiscarded, s.get(), cmd));
 }
 
 
@@ -1323,8 +1328,6 @@ void Docker::__inspect(
     const Subprocess& s)
 {
   if (promise->future().hasDiscard()) {
-    promise->discard();
-    output.discard();
     return;
   }
 
@@ -1376,7 +1379,6 @@ void Docker::___inspect(
     const Future<string>& output)
 {
   if (promise->future().hasDiscard()) {
-    promise->discard();
     return;
   }
 
@@ -1611,7 +1613,8 @@ Future<Docker::Image> Docker::pull(
         path,
         socket,
         config,
-        output));
+        output))
+    .onDiscard(lambda::bind(&commandDiscarded, s.get(), cmd));
 }
 
 
