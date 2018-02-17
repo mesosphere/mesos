@@ -107,6 +107,12 @@ inline Try<std::string> decode(const std::string& s, const std::string& chars)
       break; // Reached the padding.
     }
 
+    // Ignore whitespaces since most implementations use newlines to delimit
+    // encoded data.
+    if (isspace(c)) {
+      continue;
+    }
+
     if (!isBase64(c)) {
       return Error("Invalid character '" + stringify(c) + "'");
     }
