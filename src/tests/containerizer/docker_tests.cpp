@@ -478,9 +478,10 @@ TEST_F_TEMP_DISABLED_ON_WINDOWS(DockerTest, ROOT_DOCKER_CancelPull)
   Future<Docker::Image> future =
     docker->pull(directory.get(), "lingmann/1gb");
 
+LOG(INFO) << "*** discard now";
   future.discard();
 
-  AWAIT_DISCARDED(future);
+  AWAIT_FAILED(future);
 }
 
 

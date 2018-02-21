@@ -3955,7 +3955,7 @@ TEST_F(DockerContainerizerTest, ROOT_DOCKER_DockerInspectDiscard)
 
   AWAIT_READY(executorLost);
 
-  AWAIT_DISCARDED(inspect);
+  AWAIT_FAILED(inspect);
 
   driver.stop();
   driver.join();

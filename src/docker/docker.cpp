@@ -148,8 +148,13 @@ Try<Owned<Docker>> Docker::create(
 
 void commandDiscarded(const Subprocess& s, const string& cmd)
 {
-  VLOG(1) << "'" << cmd << "' is being discarded";
-  os::killtree(s.pid(), SIGKILL);
+  // We check that the subprocess's status is still pending because the retry
+  // logic embedded in `Docker::inspect` means that we may invoke
+  // `commandDiscarded` on a subprocess which has already returned.
+  if (s.status().isPending()) {
+    VLOG(1) << "'" << cmd << "' is being discarded";
+    os::killtree(s.pid(), SIGKILL);
+  }
 }
 
 
@@ -1186,7 +1191,7 @@ Future<Nothing> Docker::stop(
     return Failure("Failed to create subprocess '" + cmd + "': " + s.error());
   }
 
-  return s.get().status()
+  return undiscardable(s.get().status()
     .then(lambda::bind(
         &Docker::_stop,
         *this,
@@ -1194,7 +1199,7 @@ Future<Nothing> Docker::stop(
         cmd,
         s.get(),
         remove))
-    .onDiscard(lambda::bind(&commandDiscarded, s.get(), cmd));
+    .onDiscard(lambda::bind(&commandDiscarded, s.get(), cmd)));
 }
 
 
@@ -1279,8 +1284,7 @@ Future<Docker::Container> Docker::inspect(
   const string cmd = path + " -H " + socket + " inspect " + containerName;
   _inspect(cmd, promise, retryInterval);
 
-  return promise->future()
-    .onDiscard([&promise]() { promise->discard(); });
+  return promise->future();
 }
 
 
@@ -1289,10 +1293,6 @@ void Docker::_inspect(
     const Owned<Promise<Docker::Container>>& promise,
     const Option<Duration>& retryInterval)
 {
-  if (promise->future().hasDiscard()) {
-    return;
-  }
-
   VLOG(1) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
@@ -1312,7 +1312,9 @@ void Docker::_inspect(
   Future<string> output = io::read(s.get().out().get());
 
   s.get().status()
-    .onAny([=]() { __inspect(cmd, promise, retryInterval, output, s.get()); });
+    .onReady([=]() {
+      __inspect(cmd, promise, retryInterval, output, s.get());
+  });
 
   promise->future()
     .onDiscard([output]() mutable { output.discard(); })
@@ -1327,10 +1329,6 @@ void Docker::__inspect(
     Future<string> output,
     const Subprocess& s)
 {
-  if (promise->future().hasDiscard()) {
-    return;
-  }
-
   // Check the exit status of 'docker inspect'.
   CHECK_READY(s.status());
 
@@ -1341,7 +1339,7 @@ void Docker::__inspect(
   } else if (status.get() != 0) {
     output.discard();
 
-    if (retryInterval.isSome()) {
+    if (retryInterval.isSome() && !promise->future().hasDiscard()) {
       VLOG(1) << "Retrying inspect with non-zero status code. cmd: '"
               << cmd << "', interval: " << stringify(retryInterval.get());
       Clock::timer(retryInterval.get(),
@@ -1378,10 +1376,6 @@ void Docker::___inspect(
     const Option<Duration>& retryInterval,
     const Future<string>& output)
 {
-  if (promise->future().hasDiscard()) {
-    return;
-  }
-
   if (!output.isReady()) {
     promise->fail(output.isFailed() ? output.failure() : "future discarded");
     return;
@@ -1603,7 +1597,7 @@ Future<Docker::Image> Docker::pull(
 
   // We assume docker inspect to exit quickly and do not need to be
   // discarded.
-  return s.get().status()
+  return undiscardable(s.get().status()
     .then(lambda::bind(
         &Docker::_pull,
         *this,
@@ -1614,7 +1608,7 @@ Future<Docker::Image> Docker::pull(
         socket,
         config,
         output))
-    .onDiscard(lambda::bind(&commandDiscarded, s.get(), cmd));
+    .onDiscard(lambda::bind(&commandDiscarded, s.get(), cmd)));
 }
 
 
@@ -1737,7 +1731,7 @@ Future<Docker::Image> Docker::__pull(
   // Docker pull can run for a long time due to large images, so
   // we allow the future to be discarded and it will kill the pull
   // process.
-  return s_.get().status()
+  return undiscardable(s_.get().status()
     .then(lambda::bind(
         &Docker::___pull,
         docker,
@@ -1756,7 +1750,7 @@ Future<Docker::Image> Docker::__pull(
                        << rmdir.error();
         }
       }
-    });
+    }));
 }
 
 
@@ -1772,8 +1766,8 @@ Future<Docker::Image> Docker::___pull(
   if (!status.isSome()) {
     return Failure("No status found from '" + cmd + "'");
   } else if (status.get() != 0) {
-    return io::read(s.err().get())
-      .then(lambda::bind(&failure<Image>, cmd, status.get(), lambda::_1));
+    return undiscardable(io::read(s.err().get())
+      .then(lambda::bind(&failure<Image>, cmd, status.get(), lambda::_1)));
   }
 
   // We re-invoke Docker::pull in order to now do an 'inspect' since
