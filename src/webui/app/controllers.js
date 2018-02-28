@@ -51,10 +51,10 @@
   // (e.g., hosting '/slave/log' for each agent log, we don't
   // namespace metrics within '/metrics/snapshot', etc).
   function agentURLPrefix(agent, includeProcessId) {
-    var port = agent.pid.substring(agent.pid.lastIndexOf(':') + 1);
     var processId = agent.pid.substring(0, agent.pid.indexOf('@'));
 
-    var url = '//' + agent.hostname + ':' + port;
+    // Admin Router routes '/agent/<id>' to the agent.
+    var url = '/agent/' + agent.id;
 
     if (includeProcessId) {
       url += '/' + processId;
@@ -63,14 +63,9 @@
     return url;
   }
 
-  function leadingMasterURLPrefix(leader_info) {
-    if (leader_info) {
-      return '//' + leader_info.hostname + ':' + leader_info.port;
-    }
-
-    // If we do not have `leader_info` available (e.g. the first
-    // time we are retrieving state), fallback to the current master.
-    return '';
+  function leadingMasterURLPrefix(_leader_info) {
+    // Admin Router routes '/mesos' to the leading master.
+    return '/mesos';
   }
 
   // Invokes the pailer, building the endpoint URL with the specified urlPrefix
@@ -382,6 +377,12 @@
   mesosApp.controller('MainCtrl', [
       '$scope', '$http', '$location', '$timeout', '$modal',
       function($scope, $http, $location, $timeout, $modal) {
+    // Redirect from the direct Mesos webui URL to the DC/OS URL that goes through adminrouter.
+    if ($location.port() === 5050) {
+      var url = $location.protocol() + "://" + $location.host() + "/mesos";
+      window.location = url;
+    }
+
     $scope.doneLoading = true;
 
     // Adding bindings into scope so that they can be used from within
