@@ -1275,6 +1275,17 @@ mesos::master::Response::GetAgents::Agent createAgentResponse(
   agent.mutable_capabilities()->CopyFrom(
       slave.capabilities.toRepeatedPtrField());
 
+  foreachvalue (
+      const mesos::internal::master::Slave::ResourceProvider& resourceProvider,
+      slave.resourceProviders) {
+    mesos::master::Response::GetAgents::Agent::ResourceProvider* provider =
+      agent.add_resource_providers();
+
+    provider->mutable_resource_provider_info()->CopyFrom(resourceProvider.info);
+    provider->mutable_total_resources()->CopyFrom(
+        resourceProvider.totalResources);
+  }
+
   return agent;
 }
 
