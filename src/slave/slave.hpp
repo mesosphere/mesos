@@ -525,7 +525,7 @@ private:
   void _forwardOversubscribed(
       const process::Future<Resources>& oversubscribable);
 
-  // Gauge methods.
+  // PullGauge methods.
   double _frameworks_active()
   {
     return static_cast<double>(frameworks.size());

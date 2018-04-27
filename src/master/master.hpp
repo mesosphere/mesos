@@ -1904,7 +1904,7 @@ private:
   // copyable metric types only.
   std::shared_ptr<Metrics> metrics;
 
-  // Gauge handlers.
+  // PullGauge handlers.
   double _uptime_secs()
   {
     return (process::Clock::now() - startTime).secs();
