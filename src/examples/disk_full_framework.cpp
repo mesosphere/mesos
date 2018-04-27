@@ -28,7 +28,7 @@
 #include <process/time.hpp>
 
 #include <process/metrics/counter.hpp>
-#include <process/metrics/gauge.hpp>
+#include <process/metrics/pull_gauge.hpp>
 #include <process/metrics/metrics.hpp>
 
 #include <stout/bytes.hpp>
@@ -47,7 +47,7 @@ using std::string;
 using process::Clock;
 using process::defer;
 
-using process::metrics::Gauge;
+using process::metrics::PullGauge;
 using process::metrics::Counter;
 
 const double CPUS_PER_TASK = 0.1;
@@ -322,8 +322,8 @@ private:
       process::metrics::remove(abnormal_terminations);
     }
 
-    process::metrics::Gauge uptime_secs;
-    process::metrics::Gauge registered;
+    process::metrics::PullGauge uptime_secs;
+    process::metrics::PullGauge registered;
 
     process::metrics::Counter tasks_finished;
     process::metrics::Counter tasks_disk_full;

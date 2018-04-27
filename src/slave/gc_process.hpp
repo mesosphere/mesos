@@ -29,7 +29,7 @@
 #include <process/timer.hpp>
 
 #include <process/metrics/counter.hpp>
-#include <process/metrics/gauge.hpp>
+#include <process/metrics/pull_gauge.hpp>
 
 #include <stout/duration.hpp>
 #include <stout/hashmap.hpp>
@@ -95,7 +95,7 @@ private:
 
     process::metrics::Counter path_removals_succeeded;
     process::metrics::Counter path_removals_failed;
-    process::metrics::Gauge path_removals_pending;
+    process::metrics::PullGauge path_removals_pending;
   } metrics;
 
   const std::string workDir;
