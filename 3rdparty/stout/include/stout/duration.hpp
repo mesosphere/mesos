@@ -25,6 +25,8 @@
 #include <limits>
 #include <string>
 
+#include <boost/functional/hash.hpp>
+
 #include "error.hpp"
 #include "numify.hpp"
 #include "try.hpp"
@@ -419,5 +421,25 @@ inline constexpr Duration Duration::min()
 {
   return Nanoseconds(std::numeric_limits<int64_t>::min());
 }
+
+
+namespace std {
+
+template <>
+struct hash<Duration>
+{
+  typedef size_t result_type;
+
+  typedef Duration argument_type;
+
+  result_type operator()(const argument_type& duration) const
+  {
+    size_t seed = 0;
+    boost::hash_combine(seed, duration.ns());
+    return seed;
+  }
+};
+
+} // namespace std {
 
 #endif // __STOUT_DURATION_HPP__
