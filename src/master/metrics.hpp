@@ -216,6 +216,11 @@ struct FrameworkMetrics
 
   ~FrameworkMetrics();
 
+  // TODO(gilbert): Move the normalize() to the other place so
+  // that it could be used for per-role metrics.
+  static std::string normalize(const std::string& s);
+  static std::string getPrefix(const FrameworkInfo& frameworkInfo);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::PullGauge subscribed;
