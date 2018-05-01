@@ -103,6 +103,13 @@ struct FrameworkMetrics
   static std::string getPrefix(const FrameworkInfo& frameworkInfo);
 
   const FrameworkInfo frameworkInfo;
+
+  process::metrics::Counter resources_filtered;
+  process::metrics::Counter resources_filtered_decline;
+  process::metrics::Counter resources_filtered_gpu;
+  process::metrics::Counter resources_filtered_region_aware;
+  process::metrics::Counter resources_filtered_reservation_refinement;
+  process::metrics::Counter resources_filtered_revocable;
 };
 
 } // namespace internal {

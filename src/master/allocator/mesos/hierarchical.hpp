@@ -266,7 +266,7 @@ protected:
       const FrameworkID& frameworkId,
       const std::string& role,
       const SlaveID& slaveId,
-      const Resources& resources) const;
+      const Resources& resources);
 
   // Returns true if there is an inverse offer filter for this framework
   // on this slave.
