@@ -801,6 +801,18 @@ void FrameworkMetrics::incrementOfferFilterBuckets(const Duration _duration)
   }
 }
 
+
+string normalizeMetricKey(const string& key)
+{
+  string name = strings::lower(key);
+  name = strings::trim(name);
+  name = strings::replace(name, " ", "__");
+  name = strings::replace(name, ".", "__");
+  name = strings::replace(name, "/", "__");
+
+  return name;
+}
+
 } // namespace master {
 } // namespace internal {
 } // namespace mesos {
