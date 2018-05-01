@@ -9037,6 +9037,17 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
           status.source(),
           status.reason());
     }
+
+    if (protobuf::isTerminalState(status.state()) && framework != nullptr) {
+      if (status.has_reason()) {
+        framework->metrics.incrementTerminalTaskReasons(
+            status.state(),
+            status.source(),
+            status.reason());
+      }
+
+      framework->metrics.incrementTerminalTaskState(status.state());
+    }
   }
 }
 
