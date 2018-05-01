@@ -224,12 +224,17 @@ struct FrameworkMetrics
   void incrementCall(const scheduler::Call& call);
   void incrementSubscribeCall();
 
+  void incrementEvent(const scheduler::Event& event);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::PullGauge subscribed;
 
   process::metrics::Counter calls;
   hashmap<scheduler::Call::Type, process::metrics::Counter> callTypes;
+
+  process::metrics::Counter events;
+  hashmap<scheduler::Event::Type, process::metrics::Counter> eventTypes;
 };
 
 } // namespace master {
