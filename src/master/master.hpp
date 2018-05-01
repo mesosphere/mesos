@@ -2376,6 +2376,10 @@ struct Framework
                    << " framework " << *this;
     }
 
+    // TODO(gilbert): add heartbeat event metrics.
+    // TODO(gilbert): add helper to transit message to v0 event.
+    metrics.incrementEvent(devolve(evolve(message)));
+
     if (http.isSome()) {
       if (!http.get().send(message)) {
         LOG(WARNING) << "Unable to send event to framework " << *this << ":"

@@ -518,11 +518,14 @@ FrameworkMetrics::FrameworkMetrics(
         getPrefix(frameworkInfo) + "subscribed",
         defer(master, &Master::_framework_subscribed, frameworkInfo.id())),
     calls(
-        getPrefix(frameworkInfo) + "calls")
+        getPrefix(frameworkInfo) + "calls"),
+    events(
+        getPrefix(frameworkInfo) + "events")
 {
   process::metrics::add(subscribed);
 
   process::metrics::add(calls);
+  process::metrics::add(events);
 }
 
 
@@ -532,6 +535,11 @@ FrameworkMetrics::~FrameworkMetrics()
 
   process::metrics::remove(calls);
   foreachvalue (const Counter& counter, callTypes) {
+    process::metrics::remove(counter);
+  }
+
+  process::metrics::remove(events);
+  foreachvalue (const Counter& counter, eventTypes) {
     process::metrics::remove(counter);
   }
 }
@@ -584,6 +592,23 @@ void FrameworkMetrics::incrementSubscribeCall()
   Counter counter = callTypes.get(scheduler::Call::SUBSCRIBE).get();
   counter++;
   calls++;
+}
+
+
+void FrameworkMetrics::incrementEvent(const scheduler::Event& event)
+{
+  if (!eventTypes.contains(event.type())) {
+    Counter counter = Counter(
+        getPrefix(frameworkInfo) + "events/" +
+        strings::lower(scheduler::Event::Type_Name(event.type())));
+
+    eventTypes.put(event.type(), counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = eventTypes.get(event.type()).get();
+  counter++;
+  events++;
 }
 
 } // namespace master {
