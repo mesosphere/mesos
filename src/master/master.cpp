@@ -3879,6 +3879,8 @@ void Master::accept(
 {
   CHECK_NOTNULL(framework);
 
+  framework->metrics.offers_accepted += accept.offer_ids().size();
+
   // Bump metrics.
   foreach (const Offer::Operation& operation, accept.operations()) {
     if (operation.type() == Offer::Operation::LAUNCH) {
@@ -5134,6 +5136,7 @@ void Master::decline(
             << " for framework " << *framework;
 
   ++metrics->messages_decline_offers;
+  framework->metrics.offers_declined += decline.offer_ids().size();
 
   //  Return resources to the allocator.
   foreach (const OfferID& offerId, decline.offer_ids()) {
@@ -7703,6 +7706,7 @@ void Master::offer(
   LOG(INFO) << "Sending " << message.offers().size()
             << " offers to framework " << *framework;
 
+  framework->metrics.offers_sent += message.offers().size();
   framework->send(message);
 }
 
@@ -9186,6 +9190,7 @@ void Master::removeOffer(Offer* offer, bool rescind)
   if (rescind) {
     RescindResourceOfferMessage message;
     message.mutable_offer_id()->MergeFrom(offer->id());
+    framework->metrics.offers_rescinded++;
     framework->send(message);
   }
 

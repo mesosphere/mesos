@@ -236,6 +236,11 @@ struct FrameworkMetrics
   process::metrics::Counter events;
   hashmap<scheduler::Event::Type, process::metrics::Counter> eventTypes;
   hashmap<TaskState, process::metrics::Counter> eventUpdates;
+
+  process::metrics::Counter offers_sent;
+  process::metrics::Counter offers_accepted;
+  process::metrics::Counter offers_declined;
+  process::metrics::Counter offers_rescinded;
 };
 
 } // namespace master {
