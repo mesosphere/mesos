@@ -136,7 +136,8 @@ HierarchicalAllocatorProcess::Framework::Framework(
     const set<string>& _suppressedRoles)
   : roles(protobuf::framework::getRoles(frameworkInfo)),
     suppressedRoles(_suppressedRoles),
-    capabilities(frameworkInfo.capabilities()) {}
+    capabilities(frameworkInfo.capabilities()),
+    frameworkMetrics(new FrameworkMetrics(frameworkInfo)) {}
 
 
 void HierarchicalAllocatorProcess::initialize(
