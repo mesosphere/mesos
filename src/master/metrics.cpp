@@ -518,8 +518,7 @@ FrameworkMetrics::FrameworkMetrics(
     const FrameworkInfo& _frameworkInfo)
   : frameworkInfo(_frameworkInfo),
     subscribed(
-        getPrefix(frameworkInfo) + "subscribed",
-        defer(master, &Master::_framework_subscribed, frameworkInfo.id())),
+        getPrefix(frameworkInfo) + "subscribed"),
     calls(
         getPrefix(frameworkInfo) + "calls"),
     events(

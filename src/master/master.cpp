@@ -437,6 +437,13 @@ void Framework::untrackUnderRole(const string& role)
 }
 
 
+void Framework::setFrameworkState(Framework::State _state)
+{
+  state = _state;
+  metrics.subscribed = state == Framework::State::ACTIVE ? 1 : 0;
+}
+
+
 void Master::initialize()
 {
   LOG(INFO) << "Master " << info_.id() << " (" << info_.hostname() << ")"
@@ -3140,7 +3147,7 @@ void Master::_subscribe(
       // NOTE: We do this after recovering resources (above) so that
       // the allocator has the correct view of the framework's share.
       if (!framework->active()) {
-        framework->state = Framework::State::ACTIVE;
+        framework->setFrameworkState(Framework::State::ACTIVE);
         allocator->activateFramework(framework->id());
       }
 
@@ -3254,7 +3261,7 @@ void Master::disconnect(Framework* framework)
 
   LOG(INFO) << "Disconnecting framework " << *framework;
 
-  framework->state = Framework::State::DISCONNECTED;
+  framework->setFrameworkState(Framework::State::DISCONNECTED);
 
   if (framework->pid.isSome()) {
     // Remove the framework from authenticated. This is safe because
@@ -3277,7 +3284,7 @@ void Master::deactivate(Framework* framework, bool rescind)
 
   LOG(INFO) << "Deactivating framework " << *framework;
 
-  framework->state = Framework::State::INACTIVE;
+  framework->setFrameworkState(Framework::State::INACTIVE);
 
   // Tell the allocator to stop allocating resources to this framework.
   allocator->deactivateFramework(framework->id());
@@ -8218,7 +8225,7 @@ Try<Nothing> Master::activateRecoveredFramework(
   }
 
   // Activate the framework.
-  framework->state = Framework::State::ACTIVE;
+  framework->setFrameworkState(Framework::State::ACTIVE);
   allocator->activateFramework(framework->id());
 
   // Export framework metrics if a principal is specified in `FrameworkInfo`.
@@ -8376,7 +8383,7 @@ void Master::_failoverFramework(Framework* framework)
   // NOTE: We do this after recovering resources (above) so that
   // the allocator has the correct view of the framework's share.
   if (!framework->active()) {
-    framework->state = Framework::State::ACTIVE;
+    framework->setFrameworkState(Framework::State::ACTIVE);
     allocator->activateFramework(framework->id());
   }
 
@@ -9661,25 +9668,6 @@ double Master::_resources_revocable_percent(const string& name)
   }
 
   return _resources_revocable_used(name) / total;
-}
-
-
-Future<double> Master::_framework_subscribed(const FrameworkID& frameworkId)
-{
-  Option<Framework*> framework;
-  framework = frameworks.registered.get(frameworkId);
-
-  if (frameworks.completed.contains(frameworkId)) {
-    framework = frameworks.completed.get(frameworkId)->get();
-  }
-
-  // This case means the framework has been garbage collected.
-  if (framework.isNone()) {
-    // TODO(gilbert): Consider returning an abandoned/discarded future.
-    return Failure("Framework not found");
-  }
-
-  return framework.get()->state == Framework::State::ACTIVE ? 1 : 0;
 }
 
 

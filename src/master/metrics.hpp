@@ -243,7 +243,7 @@ struct FrameworkMetrics
 
   const FrameworkInfo frameworkInfo;
 
-  process::metrics::PullGauge subscribed;
+  process::metrics::PushGauge subscribed;
 
   process::metrics::Counter calls;
   hashmap<scheduler::Call::Type, process::metrics::Counter> callTypes;
