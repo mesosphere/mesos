@@ -24,6 +24,7 @@
 
 #include <process/metrics/counter.hpp>
 #include <process/metrics/pull_gauge.hpp>
+#include <process/metrics/push_gauge.hpp>
 #include <process/metrics/timer.hpp>
 
 #include <process/pid.hpp>
@@ -102,6 +103,10 @@ struct FrameworkMetrics
   static std::string normalize(const std::string& s);
   static std::string getPrefix(const FrameworkInfo& frameworkInfo);
 
+  void setDrfPositions(
+      const std::string& role,
+      const std::pair<size_t, size_t>& minMax);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::Counter resources_filtered;
@@ -110,6 +115,16 @@ struct FrameworkMetrics
   process::metrics::Counter resources_filtered_region_aware;
   process::metrics::Counter resources_filtered_reservation_refinement;
   process::metrics::Counter resources_filtered_revocable;
+
+  struct DrfPositions
+  {
+    DrfPositions(const std::string& prefix);
+
+    process::metrics::PushGauge min;
+    process::metrics::PushGauge max;
+  };
+
+  hashmap<std::string, DrfPositions> roleDrfPositions;
 };
 
 } // namespace internal {
