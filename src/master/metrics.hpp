@@ -233,6 +233,8 @@ struct FrameworkMetrics
 
   void incrementTerminalTaskState(const TaskState& state);
 
+  void incrementOperation(const Offer::Operation& operation);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::PullGauge subscribed;
@@ -253,6 +255,9 @@ struct FrameworkMetrics
   typedef hashmap<TaskStatus::Source, Reasons> SourcesReasons;
   hashmap<TaskState, SourcesReasons> terminal_task_reasons;
   hashmap<TaskState, process::metrics::Counter> terminal_task_states;
+
+  process::metrics::Counter operations;
+  hashmap<Offer::Operation::Type, process::metrics::Counter> operation_types;
 };
 
 } // namespace master {
