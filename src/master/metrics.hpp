@@ -207,6 +207,18 @@ struct Metrics
       const TaskStatus::Reason& reason);
 };
 
+
+struct FrameworkMetrics
+{
+  explicit FrameworkMetrics(
+      const Master& master,
+      const FrameworkInfo& _frameworkInfo);
+
+  ~FrameworkMetrics();
+
+  const FrameworkInfo frameworkInfo;
+};
+
 } // namespace master {
 } // namespace internal {
 } // namespace mesos {
