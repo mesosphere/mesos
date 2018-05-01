@@ -515,7 +515,7 @@ FrameworkMetrics::FrameworkMetrics(
     const FrameworkInfo& _frameworkInfo)
   : framworkInfo(_frameworkInfo),
     subscribed(
-        "master/frameworks/subscribed",
+        getPrefix(frameworkInfo) + "subscribed",
         defer(master, &Master::_framework_subscribed, frameworkInfo.id()))
 {
   process::metrics::add(subscribed);
@@ -525,6 +525,25 @@ FrameworkMetrics::FrameworkMetrics(
 FrameworkMetrics::~FrameworkMetrics()
 {
   process::metrics::remove(subscribed);
+}
+
+
+string FrameworkMetrics::normalize(const string& s)
+{
+  string name = strings::lower(s);
+  name = strings::trim(name);
+  name = strings::replace(name, " ", "__");
+  name = strings::replace(name, ".", "__");
+  name = strings::replace(name, "/", "__");
+
+  return name;
+}
+
+
+string FrameworkMetrics::getPrefix(const FrameworkInfo& frameworkInfo)
+{
+  return "master/frameworks/" + normalize(frameworkInfo.name()) +
+    "." + stringify(frameworkInfo.id()) + "/";
 }
 
 
