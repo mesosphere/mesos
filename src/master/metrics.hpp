@@ -274,6 +274,8 @@ struct FrameworkMetrics
   hashmap<Duration, process::metrics::Counter> refuseSecondsBuckets;
 };
 
+std::string normalizeMetricKey(const std::string& key);
+
 } // namespace master {
 } // namespace internal {
 } // namespace mesos {
