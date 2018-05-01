@@ -221,9 +221,15 @@ struct FrameworkMetrics
   static std::string normalize(const std::string& s);
   static std::string getPrefix(const FrameworkInfo& frameworkInfo);
 
+  void incrementCall(const scheduler::Call& call);
+  void incrementSubscribeCall();
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::PullGauge subscribed;
+
+  process::metrics::Counter calls;
+  hashmap<scheduler::Call::Type, process::metrics::Counter> callTypes;
 };
 
 } // namespace master {

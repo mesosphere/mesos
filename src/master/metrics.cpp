@@ -513,18 +513,27 @@ void Metrics::incrementTasksStates(
 FrameworkMetrics::FrameworkMetrics(
     const Master& master,
     const FrameworkInfo& _frameworkInfo)
-  : framworkInfo(_frameworkInfo),
+  : frameworkInfo(_frameworkInfo),
     subscribed(
         getPrefix(frameworkInfo) + "subscribed",
-        defer(master, &Master::_framework_subscribed, frameworkInfo.id()))
+        defer(master, &Master::_framework_subscribed, frameworkInfo.id())),
+    calls(
+        getPrefix(frameworkInfo) + "calls")
 {
   process::metrics::add(subscribed);
+
+  process::metrics::add(calls);
 }
 
 
 FrameworkMetrics::~FrameworkMetrics()
 {
   process::metrics::remove(subscribed);
+
+  process::metrics::remove(calls);
+  foreachvalue (const Counter& counter, callTypes) {
+    process::metrics::remove(counter);
+  }
 }
 
 
@@ -546,6 +555,36 @@ string FrameworkMetrics::getPrefix(const FrameworkInfo& frameworkInfo)
     "." + stringify(frameworkInfo.id()) + "/";
 }
 
+
+void FrameworkMetrics::incrementCall(const scheduler::Call& call)
+{
+  if (!callTypes.contains(call.type())) {
+    Counter counter = Counter(
+        getPrefix(frameworkInfo) + "calls/" +
+        strings::lower(scheduler::Call::Type_Name(call.type())));
+
+    callTypes.put(call.type(), counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = callTypes.get(call.type()).get();
+  counter++;
+  calls++;
+}
+
+
+void FrameworkMetrics::incrementSubscribeCall()
+{
+  if (!callTypes.contains(scheduler::Call::SUBSCRIBE)) {
+    Counter counter = Counter(getPrefix(frameworkInfo) + "calls/subscribe");
+    callTypes.put(scheduler::Call::SUBSCRIBE, counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = callTypes.get(scheduler::Call::SUBSCRIBE).get();
+  counter++;
+  calls++;
+}
 
 } // namespace master {
 } // namespace internal {
