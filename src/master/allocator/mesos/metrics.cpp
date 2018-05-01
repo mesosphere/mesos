@@ -238,7 +238,17 @@ FrameworkMetrics::~FrameworkMetrics()
   process::metrics::remove(resources_filtered_region_aware);
   process::metrics::remove(resources_filtered_reservation_refinement);
   process::metrics::remove(resources_filtered_revocable);
+
+  foreachvalue (const DrfPositions& positions, roleDrfPositions) {
+    process::metrics::remove(positions.min);
+    process::metrics::remove(positions.max);
+  }
 }
+
+
+FrameworkMetrics::DrfPositions::DrfPositions(const string& prefix)
+  : min(prefix + "min"),
+    max(prefix + "max") {}
 
 
 string FrameworkMetrics::normalize(const string& s)
@@ -257,6 +267,26 @@ string FrameworkMetrics::getPrefix(const FrameworkInfo& frameworkInfo)
 {
   return "master/frameworks/" + normalize(frameworkInfo.name()) +
     "." + stringify(frameworkInfo.id()) + "/";
+}
+
+
+void FrameworkMetrics::setDrfPositions(
+    const std::string& role,
+    const std::pair<size_t, size_t>& minMax)
+{
+  if (!roleDrfPositions.contains(role)) {
+    roleDrfPositions.emplace(
+        role,
+        DrfPositions(
+            getPrefix(frameworkInfo) + "allocation/roles/" +
+              normalize(role) + "/latest_position/"));
+
+    process::metrics::add(roleDrfPositions.at(role).min);
+    process::metrics::add(roleDrfPositions.at(role).max);
+  }
+
+  roleDrfPositions.at(role).min = minMax.first;
+  roleDrfPositions.at(role).max = minMax.second;
 }
 
 } // namespace internal {
