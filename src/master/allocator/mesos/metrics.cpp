@@ -203,10 +203,42 @@ void Metrics::removeRole(const string& role)
 
 
 FrameworkMetrics::FrameworkMetrics(const FrameworkInfo& _frameworkInfo)
-  : frameworkInfo(_frameworkInfo) {}
+  : frameworkInfo(_frameworkInfo),
+    resources_filtered(
+        getPrefix(frameworkInfo) + "allocation/resources_filtered"),
+    resources_filtered_decline(
+        getPrefix(frameworkInfo) + "allocation/resources_filtered/decline"),
+    resources_filtered_gpu(
+        getPrefix(frameworkInfo) +
+          "allocation/resources_filtered/gpu_resources"),
+    resources_filtered_region_aware(
+        getPrefix(frameworkInfo) +
+          "allocation/resources_filtered/region_aware"),
+    resources_filtered_reservation_refinement(
+        getPrefix(frameworkInfo) +
+          "allocation/resources_filtered/reservation_refinement"),
+    resources_filtered_revocable(
+        getPrefix(frameworkInfo) +
+          "allocation/resources_filtered/revocable_resources")
+{
+  process::metrics::add(resources_filtered);
+  process::metrics::add(resources_filtered_decline);
+  process::metrics::add(resources_filtered_gpu);
+  process::metrics::add(resources_filtered_region_aware);
+  process::metrics::add(resources_filtered_reservation_refinement);
+  process::metrics::add(resources_filtered_revocable);
+}
 
 
-FrameworkMetrics::~FrameworkMetrics() {}
+FrameworkMetrics::~FrameworkMetrics()
+{
+  process::metrics::remove(resources_filtered);
+  process::metrics::remove(resources_filtered_decline);
+  process::metrics::remove(resources_filtered_gpu);
+  process::metrics::remove(resources_filtered_region_aware);
+  process::metrics::remove(resources_filtered_reservation_refinement);
+  process::metrics::remove(resources_filtered_revocable);
+}
 
 
 string FrameworkMetrics::normalize(const string& s)
