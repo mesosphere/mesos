@@ -314,6 +314,8 @@ protected:
     // were allocated to.
     hashmap<std::string, hashmap<SlaveID, hashset<OfferFilter*>>> offerFilters;
     hashmap<SlaveID, hashset<InverseOfferFilter*>> inverseOfferFilters;
+
+    process::Owned<FrameworkMetrics> frameworkMetrics;
   };
 
   double _event_queue_dispatches()

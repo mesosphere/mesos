@@ -201,6 +201,32 @@ void Metrics::removeRole(const string& role)
   process::metrics::remove(gauge.get());
 }
 
+
+FrameworkMetrics::FrameworkMetrics(const FrameworkInfo& _frameworkInfo)
+  : frameworkInfo(_frameworkInfo) {}
+
+
+FrameworkMetrics::~FrameworkMetrics() {}
+
+
+string FrameworkMetrics::normalize(const string& s)
+{
+  string name = strings::lower(s);
+  name = strings::trim(name);
+  name = strings::replace(name, " ", "__");
+  name = strings::replace(name, ".", "__");
+  name = strings::replace(name, "/", "__");
+
+  return name;
+}
+
+
+string FrameworkMetrics::getPrefix(const FrameworkInfo& frameworkInfo)
+{
+  return "master/frameworks/" + normalize(frameworkInfo.name()) +
+    "." + stringify(frameworkInfo.id()) + "/";
+}
+
 } // namespace internal {
 } // namespace allocator {
 } // namespace master {
