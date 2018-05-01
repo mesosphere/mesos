@@ -18,6 +18,7 @@
 
 #include <process/metrics/counter.hpp>
 #include <process/metrics/pull_gauge.hpp>
+#include <process/metrics/push_gauge.hpp>
 #include <process/metrics/metrics.hpp>
 
 #include <stout/duration.hpp>
@@ -28,6 +29,7 @@
 
 using process::metrics::Counter;
 using process::metrics::PullGauge;
+using process::metrics::PushGauge;
 
 using std::string;
 
@@ -719,6 +721,36 @@ void FrameworkMetrics::incrementTerminalTaskReasons(
 
   Counter counter = terminal_task_reasons[state][source].get(reason).get();
   counter++;
+}
+
+
+void FrameworkMetrics::incrementActiveTaskState(const TaskState& state)
+{
+  if (!active_task_states.contains(state)) {
+    PushGauge gauge = PushGauge(
+        getPrefix(frameworkInfo) + "tasks/" +
+        strings::lower(TaskState_Name(state)));
+
+    active_task_states.put(state, gauge);
+    process::metrics::add(gauge);
+  }
+
+  active_task_states.at(state) += 1;
+}
+
+
+void FrameworkMetrics::decrementActiveTaskState(const TaskState& state)
+{
+  if (!active_task_states.contains(state)) {
+    PushGauge gauge = PushGauge(
+        getPrefix(frameworkInfo) + "tasks/" +
+        strings::lower(TaskState_Name(state)));
+
+    active_task_states.put(state, gauge);
+    process::metrics::add(gauge);
+  }
+
+  active_task_states.at(state) -= 1;
 }
 
 

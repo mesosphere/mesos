@@ -8928,6 +8928,8 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
   // task transitioned to a new state.
   bool sendSubscribersUpdate = false;
 
+  Framework* framework = getFramework(task->framework_id());
+
   // Set 'removable' to true if this is the first time the task
   // transitioned to a removable state. Also set the latest state.
   bool removable;
@@ -8939,6 +8941,18 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
     if (!protobuf::isTerminalState(task->state())) {
       if (latestState.get() != task->state()) {
         sendSubscribersUpdate = true;
+
+        if (framework != nullptr) {
+          // When we observe a transition away from a non-terminal state,
+          // decrement the relevant metric.
+          framework->metrics.decrementActiveTaskState(task->state());
+
+          if (!protobuf::isTerminalState(latestState.get())) {
+            // When we observe a transition to an active task state,
+            // increment the relevant metric.
+            framework->metrics.incrementActiveTaskState(latestState.get());
+          }
+        }
       }
 
       task->set_state(latestState.get());
@@ -8952,6 +8966,18 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
     if (!protobuf::isTerminalState(task->state())) {
       if (status.state() != task->state()) {
         sendSubscribersUpdate = true;
+
+        if (framework != nullptr) {
+          // When we observe a transition away from a non-terminal state,
+          // decrement the relevant metric.
+          framework->metrics.decrementActiveTaskState(task->state());
+
+          if (!protobuf::isTerminalState(status.state())) {
+            // When we observe a transition to an active task state,
+            // increment the relevant metric.
+            framework->metrics.incrementActiveTaskState(status.state());
+          }
+        }
       }
 
       task->set_state(status.state());
@@ -8997,7 +9023,6 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
 
     slave->recoverResources(task);
 
-    Framework* framework = getFramework(task->framework_id());
     if (framework != nullptr) {
       framework->recoverResources(task);
     }
