@@ -1607,6 +1607,7 @@ private:
   Master& operator=(const Master&); // No assigning.
 
   friend struct Framework;
+  friend struct FrameworkMetrics;
   friend struct Metrics;
   friend struct Slave;
   friend struct SlavesWriter;
@@ -1959,6 +1960,8 @@ private:
   double _resources_revocable_total(const std::string& name);
   double _resources_revocable_used(const std::string& name);
   double _resources_revocable_percent(const std::string& name);
+
+  process::Future<double> _framework_subscribed(const FrameworkID& frameworkId);
 
   process::Time startTime; // Start time used to calculate uptime.
 

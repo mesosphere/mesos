@@ -9602,6 +9602,25 @@ double Master::_resources_revocable_percent(const string& name)
 }
 
 
+Future<double> Master::_framework_subscribed(const FrameworkID& frameworkId)
+{
+  Option<Framework*> framework;
+  framework = frameworks.registered.get(frameworkId);
+
+  if (frameworks.completed.contains(frameworkId)) {
+    framework = frameworks.completed.get(frameworkId)->get();
+  }
+
+  // This case means the framework has been garbage collected.
+  if (framework.isNone()) {
+    // TODO(gilbert): Consider returning an abandoned/discarded future.
+    return Failure("Framework not found");
+  }
+
+  return framework.get()->state == Framework::State::ACTIVE ? 1 : 0;
+}
+
+
 static bool isValidFailoverTimeout(const FrameworkInfo& frameworkInfo)
 {
   return Duration::create(frameworkInfo.failover_timeout()).isSome();

@@ -217,6 +217,8 @@ struct FrameworkMetrics
   ~FrameworkMetrics();
 
   const FrameworkInfo frameworkInfo;
+
+  process::metrics::PullGauge subscribed;
 };
 
 } // namespace master {

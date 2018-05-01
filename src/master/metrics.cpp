@@ -510,6 +510,24 @@ void Metrics::incrementTasksStates(
 }
 
 
+FrameworkMetrics::FrameworkMetrics(
+    const Master& master,
+    const FrameworkInfo& _frameworkInfo)
+  : framworkInfo(_frameworkInfo),
+    subscribed(
+        "master/frameworks/subscribed",
+        defer(master, &Master::_framework_subscribed, frameworkInfo.id()))
+{
+  process::metrics::add(subscribed);
+}
+
+
+FrameworkMetrics::~FrameworkMetrics()
+{
+  process::metrics::remove(subscribed);
+}
+
+
 } // namespace master {
 } // namespace internal {
 } // namespace mesos {
