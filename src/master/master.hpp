@@ -1961,8 +1961,6 @@ private:
   double _resources_revocable_used(const std::string& name);
   double _resources_revocable_percent(const std::string& name);
 
-  process::Future<double> _framework_subscribed(const FrameworkID& frameworkId);
-
   process::Time startTime; // Start time used to calculate uptime.
 
   Option<process::Time> electedTime; // Time when this master is elected.
@@ -2751,6 +2749,8 @@ struct Framework
   void trackUnderRole(const std::string& role);
   void untrackUnderRole(const std::string& role);
 
+  void setFrameworkState(State _state);
+
   Master* const master;
 
   FrameworkInfo info;
@@ -2854,7 +2854,6 @@ private:
       info(_info),
       roles(protobuf::framework::getRoles(_info)),
       capabilities(_info.capabilities()),
-      state(state),
       registeredTime(time),
       reregisteredTime(time),
       completedTasks(masterFlags.max_completed_tasks_per_framework),
@@ -2862,6 +2861,8 @@ private:
       metrics(*_master, _info)
   {
     CHECK(_info.has_id());
+
+    setFrameworkState(state);
 
     foreach (const std::string& role, roles) {
       // NOTE: It's possible that we're already being tracked under the role
