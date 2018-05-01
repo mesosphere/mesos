@@ -597,6 +597,21 @@ void FrameworkMetrics::incrementSubscribeCall()
 
 void FrameworkMetrics::incrementEvent(const scheduler::Event& event)
 {
+  if (event.type() == scheduler::Event::UPDATE) {
+    const TaskState& taskState = event.update().status().state();
+    if (!eventUpdates.contains(taskState)) {
+      Counter counter = Counter(
+          getPrefix(frameworkInfo) + "events/update/" +
+          strings::lower(TaskState_Name(taskState)));
+
+      eventUpdates.put(taskState, counter);
+      process::metrics::add(counter);
+    }
+
+    Counter counter = eventUpdates.get(taskState).get();
+    counter++;
+  }
+
   if (!eventTypes.contains(event.type())) {
     Counter counter = Counter(
         getPrefix(frameworkInfo) + "events/" +
