@@ -5146,6 +5146,9 @@ void Master::decline(
           decline.filters());
 
       removeOffer(offer);
+
+      framework->metrics.incrementOfferFilterBuckets(
+          Seconds(decline.filters().refuse_seconds()));
       continue;
     }
 

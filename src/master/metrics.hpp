@@ -24,6 +24,7 @@
 #include <process/metrics/pull_gauge.hpp>
 #include <process/metrics/metrics.hpp>
 
+#include <stout/duration.hpp>
 #include <stout/hashmap.hpp>
 
 #include "mesos/mesos.hpp"
@@ -235,6 +236,8 @@ struct FrameworkMetrics
 
   void incrementOperation(const Offer::Operation& operation);
 
+  void incrementOfferFilterBuckets(const Duration _duration);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::PullGauge subscribed;
@@ -258,6 +261,12 @@ struct FrameworkMetrics
 
   process::metrics::Counter operations;
   hashmap<Offer::Operation::Type, process::metrics::Counter> operation_types;
+
+  // Counts of the numbers of filters set by the framework with `refuse_seconds`
+  // durations less than or equal to a particular value. Since all durations are
+  // less than infinity, the infinite metric is a total count of filters.
+  process::metrics::Counter refuse_seconds_infinite;
+  hashmap<Duration, process::metrics::Counter> refuseSecondsBuckets;
 };
 
 } // namespace master {
