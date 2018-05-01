@@ -2333,6 +2333,8 @@ struct Framework
       if (!isTrackedUnderRole(role)) {
         trackUnderRole(role);
       }
+
+      metrics.incrementActiveTaskState(task->state());
     }
   }
 
