@@ -2200,11 +2200,13 @@ class Heartbeater : public process::Process<Heartbeater>
 public:
   Heartbeater(const FrameworkID& _frameworkId,
               const HttpConnection& _http,
-              const Duration& _interval)
+              const Duration& _interval,
+              const lambda::function<void(const scheduler::Event&)> _callback)
     : process::ProcessBase(process::ID::generate("heartbeater")),
       frameworkId(_frameworkId),
       http(_http),
-      interval(_interval) {}
+      interval(_interval),
+      callback(_callback) {}
 
 protected:
   virtual void initialize() override
@@ -2222,6 +2224,8 @@ private:
       scheduler::Event event;
       event.set_type(scheduler::Event::HEARTBEAT);
 
+      callback(event);
+
       http.send(event);
     }
 
@@ -2231,6 +2235,7 @@ private:
   const FrameworkID frameworkId;
   HttpConnection http;
   const Duration interval;
+  const lambda::function<void(const scheduler::Event&)> callback;
 };
 
 
@@ -2724,8 +2729,14 @@ struct Framework
 
     // TODO(vinod): Make heartbeat interval configurable and include
     // this information in the SUBSCRIBED response.
-    heartbeater =
-      new Heartbeater(info.id(), http.get(), DEFAULT_HEARTBEAT_INTERVAL);
+    heartbeater = new Heartbeater(
+        info.id(),
+        http.get(),
+        DEFAULT_HEARTBEAT_INTERVAL,
+        [this](const scheduler::Event& event) {
+          this->metrics.incrementEvent(event);
+        });
+
 
     process::spawn(heartbeater.get().get());
   }
