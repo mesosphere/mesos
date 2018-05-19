@@ -241,6 +241,10 @@ struct FrameworkMetrics
 
   void incrementOfferFilterBuckets(const Duration _duration);
 
+  void incrementOffersWithResourceTypes(const Resources& resources);
+
+  void incrementOfferedResourceTypes(const Resources& resources);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::PushGauge subscribed;
@@ -256,6 +260,14 @@ struct FrameworkMetrics
   process::metrics::Counter offers_accepted;
   process::metrics::Counter offers_declined;
   process::metrics::Counter offers_rescinded;
+
+  // Counts the numbers of offers containing a particular type of resource sent
+  // to this framework. Note that several common resource types (cpus, mem,
+  // disk, gpus) are tracked by default, with others added lazily when needed.
+  hashmap<std::string, process::metrics::Counter> offers_with_resource_types;
+
+  // Counts the total resources offered for each scalar resource type.
+  hashmap<std::string, process::metrics::Counter> offered_resource_types;
 
   typedef hashmap<TaskStatus::Reason, process::metrics::Counter> Reasons;
   typedef hashmap<TaskStatus::Source, Reasons> SourcesReasons;
