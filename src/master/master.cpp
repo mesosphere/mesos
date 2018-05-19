@@ -7686,6 +7686,9 @@ void Master::offer(
         }
       }
 
+      framework->metrics.incrementOffersWithResourceTypes(offer_.resources());
+      framework->metrics.incrementOfferedResourceTypes(offer_.resources());
+
       // Per MESOS-8237, it is problematic to show the
       // `Resource.allocation_info` for pre-MULTI_ROLE schedulers.
       // Pre-MULTI_ROLE schedulers are not `AllocationInfo` aware,
