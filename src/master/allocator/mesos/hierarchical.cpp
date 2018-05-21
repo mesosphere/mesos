@@ -154,7 +154,8 @@ void HierarchicalAllocatorProcess::initialize(
     const Option<set<string>>& _fairnessExcludeResourceNames,
     bool _filterGpuResources,
     const Option<DomainInfo>& _domain,
-    const size_t maxCompletedFrameworks)
+    const size_t maxCompletedFrameworks,
+    bool _allocatePartialResources)
 {
   allocationInterval = _allocationInterval;
   offerCallback = _offerCallback;
@@ -162,6 +163,8 @@ void HierarchicalAllocatorProcess::initialize(
   fairnessExcludeResourceNames = _fairnessExcludeResourceNames;
   filterGpuResources = _filterGpuResources;
   domain = _domain;
+  allocatePartialResources = _allocatePartialResources;
+
   initialized = true;
   paused = false;
 
@@ -2510,14 +2513,20 @@ bool HierarchicalAllocatorProcess::isFiltered(
 }
 
 
-bool HierarchicalAllocatorProcess::allocatable(
-    const Resources& resources)
+bool HierarchicalAllocatorProcess::allocatable(const Resources& resources)
 {
   Option<double> cpus = resources.cpus();
   Option<Bytes> mem = resources.mem();
 
-  return (cpus.isSome() && cpus.get() >= MIN_CPUS) ||
-         (mem.isSome() && mem.get() >= MIN_MEM);
+  if (allocatePartialResources) {
+    return (cpus.isSome() && cpus.get() >= MIN_CPUS) ||
+           (mem.isSome() && mem.get() >= MIN_MEM);
+  } else {
+    if (cpus.isSome() && mem.isSome()) {
+      return cpus.get() >= MIN_CPUS && mem.get() >= MIN_MEM;
+    }
+    return false;
+  }
 }
 
 

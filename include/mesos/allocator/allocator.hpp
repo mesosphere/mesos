@@ -102,7 +102,8 @@ public:
         fairnessExcludeResourceNames = None(),
       bool filterGpuResources = true,
       const Option<DomainInfo>& domain = None(),
-      const size_t maxCompletedFrameworks = 0) = 0;
+      const size_t maxCompletedFrameworks = 0,
+      bool allocatePartialResources = true) = 0;
 
   /**
    * Informs the allocator of the recovered state from the master.

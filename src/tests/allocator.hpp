@@ -229,9 +229,9 @@ public:
     // to get the best of both worlds: the ability to use 'DoDefault'
     // and no warnings when expectations are not explicit.
 
-    ON_CALL(*this, initialize(_, _, _, _, _, _, _))
+    ON_CALL(*this, initialize(_, _, _, _, _, _, _, _))
       .WillByDefault(InvokeInitialize(this));
-    EXPECT_CALL(*this, initialize(_, _, _, _, _, _, _))
+    EXPECT_CALL(*this, initialize(_, _, _, _, _, _, _, _))
       .WillRepeatedly(DoDefault());
 
     ON_CALL(*this, recover(_, _))
@@ -357,7 +357,7 @@ public:
 
   virtual ~TestAllocator() {}
 
-  MOCK_METHOD7(initialize, void(
+  MOCK_METHOD8(initialize, void(
       const Duration&,
       const lambda::function<
           void(const FrameworkID&,
@@ -368,7 +368,8 @@ public:
       const Option<std::set<std::string>>&,
       bool,
       const Option<DomainInfo>&,
-      const size_t maxCompletedFrameworks));
+      const size_t maxCompletedFrameworks,
+      bool));
 
   MOCK_METHOD2(recover, void(
       const int expectedAgentCount,

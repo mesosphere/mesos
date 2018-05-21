@@ -114,7 +114,8 @@ public:
         fairnessExcludeResourceNames = None(),
       bool filterGpuResources = true,
       const Option<DomainInfo>& domain = None(),
-      const size_t maxCompletedFrameworks = 0);
+      const size_t maxCompletedFrameworks = 0,
+      bool allocatePartialResources = true);
 
   void recover(
       const int _expectedAgentCount,
@@ -284,7 +285,7 @@ protected:
       const FrameworkID& frameworkID,
       const SlaveID& slaveID) const;
 
-  static bool allocatable(const Resources& resources);
+  bool allocatable(const Resources& resources);
 
   bool initialized;
   bool paused;
@@ -473,6 +474,9 @@ protected:
 
   // Filter GPU resources based on the `GPU_RESOURCES` framework capability.
   bool filterGpuResources;
+
+  // Allocate partial resources (with just CPUS or just MEM).
+  bool allocatePartialResources;
 
   // The master's domain, if any.
   Option<DomainInfo> domain;

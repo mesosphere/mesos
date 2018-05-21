@@ -679,4 +679,13 @@ mesos::internal::master::Flags::Flags()
         }
         return None();
       });
+
+  add(&Flags::allocate_partial_resources,
+      "allocate_partial_resources",
+      "When set to true, this flag will allow the mesos master to allocate\n"
+      "just CPUs or memory to a role. When set to false, this flag will\n"
+      "prevent the master from allocating just CPUs or memory to a role,\n"
+      "meaning that it will not send offers with just CPUs or with just\n"
+      "memory.\n",
+      true);
 }
