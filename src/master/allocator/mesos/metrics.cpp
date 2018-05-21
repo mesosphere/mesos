@@ -169,12 +169,18 @@ void Metrics::setQuota(const string& role, const Quota& quota)
 void Metrics::removeQuota(const string& role)
 {
   CHECK(quota_allocated.contains(role));
+  CHECK(quota_guarantee.contains(role));
 
   foreachvalue (const PullGauge& gauge, quota_allocated[role]) {
     process::metrics::remove(gauge);
   }
 
+  foreachvalue (const PullGauge& gauge, quota_guarantee[role]) {
+    process::metrics::remove(gauge);
+  }
+
   quota_allocated.erase(role);
+  quota_guarantee.erase(role);
 }
 
 
