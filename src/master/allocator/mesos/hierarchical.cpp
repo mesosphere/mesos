@@ -2516,8 +2516,11 @@ bool HierarchicalAllocatorProcess::allocatable(
   Option<double> cpus = resources.cpus();
   Option<Bytes> mem = resources.mem();
 
-  return (cpus.isSome() && cpus.get() >= MIN_CPUS) ||
-         (mem.isSome() && mem.get() >= MIN_MEM);
+  if (cpus.isSome() && mem.isSome()) {
+    return cpus.get() >= MIN_CPUS && mem.get() >= MIN_MEM;
+  }
+
+  return false;
 }
 
 
