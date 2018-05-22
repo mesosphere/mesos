@@ -950,6 +950,13 @@ struct unwrap<Future<X>>
 };
 
 
+template <typename X>
+struct unwrap<const Future<X>>
+{
+  typedef X type;
+};
+
+
 template <typename T>
 void select(
     const Future<T>& future,
