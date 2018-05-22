@@ -19,11 +19,16 @@
 #include <process/delay.hpp>
 #include <process/dispatch.hpp>
 
+#include <stout/adaptor.hpp>
 #include <stout/foreach.hpp>
 
 #include <stout/os/rmdir.hpp>
 
 #include "logging/logging.hpp"
+
+#ifdef __linux__
+#include "linux/fs.hpp"
+#endif
 
 #include "slave/gc.hpp"
 
@@ -129,7 +134,62 @@ void GarbageCollectorProcess::remove(const Timeout& removalTime)
   // operation. To fix this, the removal operation can be done
   // asynchronously in another thread.
   if (paths.count(removalTime) > 0) {
-    foreach (const PathInfo& info, paths.get(removalTime)) {
+    list<PathInfo> infos = paths.get(removalTime);
+
+#ifdef __linux__
+    // Clear any possible persistent volume mount points in `infos`. See
+    // MESOS-8830.
+    Try<fs::MountInfoTable> mountTable = fs::MountInfoTable::read();
+    if (mountTable.isError()) {
+      LOG(ERROR) << "Skipping any path deletion because of failure on read "
+                    "MountInfoTable for agent process: "
+                 << mountTable.error();
+
+      foreach (const PathInfo& info, infos) {
+        info.promise->fail(mountTable.error());
+      }
+
+      infos.clear();
+    } else {
+      foreach (const fs::MountInfoTable::Entry& entry,
+               adaptor::reverse(mountTable->entries)) {
+        // Ignore mounts whose targets are not under `workDir`.
+        if (!strings::startsWith(
+                path::join(entry.target, ""),
+                path::join(workDir, ""))) {
+                continue;
+        }
+
+        for (auto it = infos.begin(); it != infos.end(); ) {
+          const PathInfo& info = *it;
+          // TODO(zhitao): Validate that both `info->path` and `workDir` are
+          // real paths.
+          if (strings::startsWith(
+                path::join(entry.target, ""), path::join(info.path, ""))) {
+            LOG(WARNING)
+                << "Unmounting dangling mount point '" << entry.target
+                << "' of persistent volume '" << entry.root
+                << "' inside garbage collected path '" << info.path << "'";
+
+            Try<Nothing> unmount = fs::unmount(entry.target);
+            if (unmount.isError()) {
+              LOG(WARNING) << "Skipping deletion of '"
+                           << info.path << "' because unmount failed on '"
+                           << entry.target << "': " << unmount.error();
+
+              info.promise->fail(unmount.error());
+              it = infos.erase(it);
+              continue;
+            }
+          }
+
+          it++;
+        }
+      }
+    }
+#endif // __linux__
+
+    foreach (const PathInfo& info, infos) {
       LOG(INFO) << "Deleting " << info.path;
 
       // Run rmdir with 'continueOnError = true'. It's possible for
@@ -175,9 +235,9 @@ void GarbageCollectorProcess::prune(const Duration& d)
 }
 
 
-GarbageCollector::GarbageCollector()
+GarbageCollector::GarbageCollector(const string& workDir)
 {
-  process = new GarbageCollectorProcess();
+  process = new GarbageCollectorProcess(workDir);
   spawn(process);
 }
 
