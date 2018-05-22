@@ -17,6 +17,7 @@
 #include <process/future.hpp>
 #include <process/gtest.hpp>
 #include <process/http.hpp>
+#include <process/io.hpp>
 #include <process/process.hpp>
 #include <process/socket.hpp>
 
@@ -26,6 +27,8 @@
 #include <stout/try.hpp>
 
 #include <stout/tests/utils.hpp>
+
+namespace io = process::io;
 
 namespace inet4 = process::network::inet4;
 #ifndef __WINDOWS__
@@ -244,3 +247,130 @@ TEST_P(NetSocketTest, EOFAfterRecv)
   AWAIT_EXPECT_EQ(string(), receive);
 }
 #endif // __WINDOWS__
+
+
+// Tests the semantics of a `Socket::recv()` properly returning when
+// the client socket does a read shutdown (versus the remote end doing
+// a write shutdown, see ServerSocketShutdown test).
+TEST_P(NetSocketTest, ClientSocketShutdown)
+{
+  Try<Socket> client = Socket::create();
+  ASSERT_SOME(client);
+
+  Try<Socket> server = Socket::create();
+  ASSERT_SOME(server);
+
+  Try<Address> address = server->bind(inet4::Address::ANY_ANY());
+  ASSERT_SOME(address);
+
+  ASSERT_SOME(server->listen(1));
+  Future<Socket> accept = server->accept();
+
+  // Connect to the IP from the libprocess library, but use the port
+  // from the `bind` call above. The libprocess IP will always report
+  // a locally bindable IP, meaning it will also work for the server
+  // socket above.
+  //
+  // NOTE: We do not use the server socket's address directly because
+  // this contains a `0.0.0.0` IP. According to RFC1122, this is an
+  // invalid address, except when used to resolve a host's address
+  // for the first time.
+  // See: https://tools.ietf.org/html/rfc1122#section-3.2.1.3
+  AWAIT_READY(client->connect(Address(process::address().ip, address->port)));
+
+  Future<string> future = client->recv();
+
+  ASSERT_SOME(client->shutdown());
+
+  AWAIT_READY(future);
+}
+
+
+// Tests the semantics of a `Socket::recv()` properly returning when
+// the server does a write shutdown on an accepted socket (versus the
+// client end doing a read shutdown, see ClientSocketShutdown test).
+TEST_P(NetSocketTest, ServerSocketShutdown)
+{
+  Try<Socket> client = Socket::create();
+  ASSERT_SOME(client);
+
+  Try<Socket> server = Socket::create();
+  ASSERT_SOME(server);
+
+  Try<Address> address = server->bind(inet4::Address::ANY_ANY());
+  ASSERT_SOME(address);
+
+  ASSERT_SOME(server->listen(1));
+  Future<Socket> accept = server->accept();
+
+  // Connect to the IP from the libprocess library, but use the port
+  // from the `bind` call above. The libprocess IP will always report
+  // a locally bindable IP, meaning it will also work for the server
+  // socket above.
+  //
+  // NOTE: We do not use the server socket's address directly because
+  // this contains a `0.0.0.0` IP. According to RFC1122, this is an
+  // invalid address, except when used to resolve a host's address
+  // for the first time.
+  // See: https://tools.ietf.org/html/rfc1122#section-3.2.1.3
+  AWAIT_READY(client->connect(Address(process::address().ip, address->port)));
+
+  Future<string> future = client->recv();
+
+  AWAIT_READY(accept);
+
+  Socket socket = accept.get(); // Need non-const copy for `Socket::shutdown()`.
+
+  ASSERT_SOME(socket.shutdown(Socket::Shutdown::WRITE));
+
+  AWAIT_READY(future);
+}
+
+
+// Tests the semantics of a client attempting to do a read shutdown
+// after the server does a write shutdown on an accepted socket.
+TEST_P(NetSocketTest, ServerClientSocketShutdown)
+{
+  Try<Socket> client = Socket::create();
+  ASSERT_SOME(client);
+
+  Try<Socket> server = Socket::create();
+  ASSERT_SOME(server);
+
+  Try<Address> address = server->bind(inet4::Address::ANY_ANY());
+  ASSERT_SOME(address);
+
+  ASSERT_SOME(server->listen(1));
+  Future<Socket> accept = server->accept();
+
+  // Connect to the IP from the libprocess library, but use the port
+  // from the `bind` call above. The libprocess IP will always report
+  // a locally bindable IP, meaning it will also work for the server
+  // socket above.
+  //
+  // NOTE: We do not use the server socket's address directly because
+  // this contains a `0.0.0.0` IP. According to RFC1122, this is an
+  // invalid address, except when used to resolve a host's address
+  // for the first time.
+  // See: https://tools.ietf.org/html/rfc1122#section-3.2.1.3
+  AWAIT_READY(client->connect(Address(process::address().ip, address->port)));
+
+  Future<string> future = client->recv();
+
+  AWAIT_READY(accept);
+
+  Socket socket = accept.get(); // Need non-const copy for `Socket::shutdown()`.
+
+  ASSERT_SOME(socket.shutdown(Socket::Shutdown::WRITE));
+
+  AWAIT_READY(future);
+
+  // On Mac OS X `Socket::shutdown()` will fail if the socket is
+  // already shutdown, whether locally or from the other side. Linux
+  // lets you do the shutdown even if it's already shutdown.
+#ifdef __APPLE__
+  ASSERT_ERROR(client->shutdown());
+#else
+  ASSERT_SOME(client->shutdown());
+#endif // __APPLE__
+}
