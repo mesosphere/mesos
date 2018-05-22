@@ -39,6 +39,7 @@
 #include "master/allocator/mesos/metrics.hpp"
 
 #include "master/allocator/sorter/drf/sorter.hpp"
+#include "master/allocator/sorter/random/sorter.hpp"
 
 #include "master/constants.hpp"
 
@@ -60,6 +61,12 @@ HierarchicalDRFAllocatorProcess;
 
 typedef MesosAllocator<HierarchicalDRFAllocatorProcess>
 HierarchicalDRFAllocator;
+
+typedef HierarchicalAllocatorProcess<RandomSorter, RandomSorter, RandomSorter>
+HierarchicalRandomAllocatorProcess;
+
+typedef MesosAllocator<HierarchicalRandomAllocatorProcess>
+HierarchicalRandomAllocator;
 
 
 namespace internal {
