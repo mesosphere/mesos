@@ -50,7 +50,7 @@ class GarbageCollectorProcess;
 class GarbageCollector
 {
 public:
-  GarbageCollector();
+  explicit GarbageCollector(const std::string& workDir);
   virtual ~GarbageCollector();
 
   // Schedules the specified path for removal after the specified
@@ -87,8 +87,9 @@ class GarbageCollectorProcess :
     public process::Process<GarbageCollectorProcess>
 {
 public:
-  GarbageCollectorProcess()
-    : ProcessBase(process::ID::generate("agent-garbage-collector")) {}
+  explicit GarbageCollectorProcess(const std::string& _workDir)
+    : ProcessBase(process::ID::generate("agent-garbage-collector")),
+      workDir(_workDir) {}
 
   virtual ~GarbageCollectorProcess();
 
@@ -119,6 +120,8 @@ private:
     const std::string path;
     const process::Owned<process::Promise<Nothing>> promise;
   };
+
+  const std::string workDir;
 
   // Store all the timeouts and corresponding paths to delete.
   // NOTE: We are using Multimap here instead of Multihashmap, because
