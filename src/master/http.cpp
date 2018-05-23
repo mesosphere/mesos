@@ -66,6 +66,8 @@
 #include <stout/utils.hpp>
 #include <stout/uuid.hpp>
 
+#include "benchmarking/benchmarking.hpp"
+
 #include "common/build.hpp"
 #include "common/http.hpp"
 #include "common/protobuf_utils.hpp"
@@ -2804,6 +2806,8 @@ Future<Response> Master::Http::state(
     const Request& request,
     const Option<Principal>& principal) const
 {
+  ::clock_gettime(CLOCK_MONOTONIC, &request.processing);
+
   // TODO(greggomann): Remove this check once the `Principal` type is used in
   // `ReservationInfo`, `DiskInfo`, and within the master's `principals` map.
   // See MESOS-7202.
@@ -3004,7 +3008,12 @@ Future<Response> Master::Http::state(
         writer->field("unregistered_frameworks", [](JSON::ArrayWriter*) {});
       };
 
-      return OK(jsonify(state), request.url.query.get("jsonp"));
+      auto ok = OK(jsonify(state), request.url.query.get("jsonp"));
+
+      ::clock_gettime(CLOCK_MONOTONIC, &request.finished);
+      benchmarking::state_json::logStateRequest(request, ok);
+
+      return ok;
     }));
 }
 
