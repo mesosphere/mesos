@@ -914,6 +914,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   authorizer/acls.cpp							\
   authorizer/authorizer.cpp						\
   authorizer/local/authorizer.cpp					\
+  benchmarking/benchmarking.cpp       \
   checks/checker.cpp							\
   checks/checker_process.cpp						\
   checks/health_checker.cpp						\
