@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <ctime>
 #include <initializer_list>
 #include <iosfwd>
 #include <memory>
@@ -518,7 +519,12 @@ public:
 struct Request
 {
   Request()
-    : keepAlive(false), type(BODY) {}
+    : keepAlive(false)
+    , type(BODY)
+    , requestNumber(counter++)
+  {
+    ::clock_gettime(CLOCK_MONOTONIC, &received);
+  }
 
   std::string method;
 
@@ -563,6 +569,12 @@ struct Request
   std::string body;
   Option<Pipe::Reader> reader;
 
+  // Temporary benchmarking support.
+  struct timespec received;
+  mutable struct timespec processing;
+  mutable struct timespec finished;
+  uint64_t requestNumber;
+
   /**
    * Returns whether the encoding is considered acceptable in the
    * response. See RFC 2616 section 14.3 for details.
@@ -586,6 +598,8 @@ struct Request
       const std::string& mediaType) const;
 
 private:
+  static std::atomic<uint64_t> counter;
+
   bool _acceptsMediaType(
       Option<std::string> name,
       const std::string& mediaType) const;

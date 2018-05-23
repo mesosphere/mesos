@@ -82,6 +82,7 @@ using process::network::internal::SocketImpl;
 namespace process {
 namespace http {
 
+std::atomic<uint64_t> Request::counter;
 
 hashmap<uint16_t, string>* statuses = new hashmap<uint16_t, string> {
   {100, "100 Continue"},
