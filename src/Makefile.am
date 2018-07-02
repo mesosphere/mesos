@@ -1464,8 +1464,7 @@ endif
 libmesos_no_3rdparty_la_SOURCES +=					\
   resource_provider/storage/disk_profile_adaptor.cpp			\
   resource_provider/storage/disk_profile.proto				\
-  resource_provider/storage/disk_profile_utils.cpp			\
-  resource_provider/storage/disk_profile_utils.hpp
+  resource_provider/storage/disk_profile_utils.cpp
 
 if ENABLE_GRPC
 libmesos_no_3rdparty_la_SOURCES +=					\
@@ -1526,12 +1525,13 @@ libcsi_la_SOURCES =							\
   csi/utils.cpp
 libcsi_la_SOURCES +=							\
   csi/paths.hpp								\
-  csi/state.hpp								\
-  csi/state.proto							\
-  csi/utils.hpp
+  csi/state.proto
 libcsi_ladir = $(pkgincludedir)/csi
 libcsi_la_HEADERS =							\
-  $(top_srcdir)/include/mesos/csi/spec.hpp
+  csi/state.pb.h							\
+  $(top_srcdir)/include/mesos/csi/spec.hpp				\
+  $(top_srcdir)/include/mesos/csi/state.hpp				\
+  $(top_srcdir)/include/mesos/csi/utils.hpp
 nodist_libcsi_la_HEADERS =						\
   ../include/csi/csi.pb.h
 
@@ -2385,8 +2385,11 @@ libload_qos_controller_la_LDFLAGS = $(MESOS_MODULE_LDFLAGS)
 pkgmodule_LTLIBRARIES += liburi_disk_profile_adaptor.la
 liburi_disk_profile_adaptor_la_SOURCES =			\
   resource_provider/storage/uri_disk_profile_adaptor.cpp	\
-  resource_provider/storage/uri_disk_profile_adaptor.hpp	\
-  resource_provider/storage/disk_profile_utils.hpp
+  resource_provider/storage/uri_disk_profile_adaptor.hpp
+liburi_disk_profile_adaptor_ladir = ${pkgincludedir}/resource_provider/storage
+liburi_disk_profile_adaptor_la_HEADERS =			\
+  $(top_srcdir)/include/mesos/resource_provider/storage/disk_profile_utils.hpp	\
+  resource_provider/storage/disk_profile.pb.h
 liburi_disk_profile_adaptor_la_CPPFLAGS = $(MESOS_CPPFLAGS)
 liburi_disk_profile_adaptor_la_LDFLAGS = $(MESOS_MODULE_LDFLAGS)
 

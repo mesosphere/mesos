@@ -14,8 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "resource_provider/storage/disk_profile_utils.hpp"
-
 #include <google/protobuf/util/json_util.h>
 
 #include <stout/bytes.hpp>
@@ -23,12 +21,13 @@
 #include <stout/foreach.hpp>
 #include <stout/unreachable.hpp>
 
+#include <mesos/resource_provider/storage/disk_profile_utils.hpp>
+
 using std::string;
 
 using mesos::resource_provider::DiskProfileMapping;
 
 namespace mesos {
-namespace internal {
 namespace storage {
 
 Try<DiskProfileMapping> parseDiskProfileMapping(
@@ -209,5 +208,4 @@ Option<Error> validate(const csi::v0::VolumeCapability& capability)
 }
 
 } // namespace storage {
-} // namespace internal {
 } // namespace mesos {

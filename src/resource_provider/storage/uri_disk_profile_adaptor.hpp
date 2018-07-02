@@ -24,6 +24,7 @@
 #include <mesos/csi/spec.hpp>
 
 #include <mesos/resource_provider/storage/disk_profile_adaptor.hpp>
+#include <mesos/resource_provider/storage/disk_profile_utils.hpp>
 
 #include <process/future.hpp>
 #include <process/owned.hpp>
@@ -37,8 +38,6 @@
 #include <stout/option.hpp>
 #include <stout/path.hpp>
 #include <stout/strings.hpp>
-
-#include "resource_provider/storage/disk_profile_utils.hpp"
 
 namespace mesos {
 namespace internal {

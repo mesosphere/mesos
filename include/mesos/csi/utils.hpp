@@ -27,12 +27,11 @@
 #include <mesos/mesos.hpp>
 
 #include <mesos/csi/spec.hpp>
+#include <mesos/csi/state.hpp>
 
 #include <stout/foreach.hpp>
 #include <stout/try.hpp>
 #include <stout/unreachable.hpp>
-
-#include "csi/state.hpp"
 
 namespace csi {
 namespace v0 {

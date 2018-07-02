@@ -28,7 +28,6 @@
 #include "resource_provider/storage/disk_profile.pb.h"
 
 namespace mesos {
-namespace internal {
 namespace storage {
 
 // Helper for parsing a string as the expected data format.
@@ -52,7 +51,6 @@ Option<Error> validate(const resource_provider::DiskProfileMapping& mapping);
 Option<Error> validate(const csi::v0::VolumeCapability& capability);
 
 } // namespace storage {
-} // namespace internal {
 } // namespace mesos {
 
 #endif // __RESOURCE_PROVIDER_URI_DISK_PROFILE_HPP__

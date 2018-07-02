@@ -22,10 +22,11 @@
 #include <stout/hashmap.hpp>
 #include <stout/uri.hpp>
 
+#include <mesos/csi/state.hpp>
+
 #include <stout/os/realpath.hpp>
 
 #include "csi/paths.hpp"
-#include "csi/state.hpp"
 
 #include "linux/fs.hpp"
 

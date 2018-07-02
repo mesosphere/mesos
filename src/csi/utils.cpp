@@ -14,9 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "csi/utils.hpp"
-
 #include <google/protobuf/util/json_util.h>
+
+#include <mesos/csi/utils.hpp>
 
 #include <stout/strings.hpp>
 

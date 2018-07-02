@@ -22,6 +22,7 @@
 #include <mesos/module/disk_profile_adaptor.hpp>
 
 #include <mesos/resource_provider/storage/disk_profile_adaptor.hpp>
+#include <mesos/resource_provider/storage/disk_profile_utils.hpp>
 
 #include <process/clock.hpp>
 #include <process/future.hpp>
@@ -41,7 +42,6 @@
 #include "module/manager.hpp"
 
 #include "resource_provider/storage/uri_disk_profile_adaptor.hpp"
-#include "resource_provider/storage/disk_profile_utils.hpp"
 
 #include "tests/flags.hpp"
 #include "tests/mesos.hpp"
@@ -57,6 +57,8 @@ using std::vector;
 using google::protobuf::Map;
 
 using mesos::resource_provider::DiskProfileMapping;
+
+using mesos::storage::parseDiskProfileMapping;
 
 using testing::_;
 using testing::DoAll;
@@ -132,8 +134,7 @@ TEST_F(UriDiskProfileAdaptorTest, ParseExample)
       }
     })~";
 
-  Try<DiskProfileMapping> parsed =
-    mesos::internal::storage::parseDiskProfileMapping(example);
+  Try<DiskProfileMapping> parsed = parseDiskProfileMapping(example);
   ASSERT_SOME(parsed);
 
   const string key = "my-profile";
@@ -386,8 +387,7 @@ TEST_F(UriDiskProfileAdaptorTest, ParseInvalids)
 
   hashset<string> errors;
   for (size_t i = 0; i < examples.size(); i++) {
-    Try<DiskProfileMapping> parsed =
-      mesos::internal::storage::parseDiskProfileMapping(examples[i]);
+    Try<DiskProfileMapping> parsed = parseDiskProfileMapping(examples[i]);
 
     ASSERT_ERROR(parsed) << examples[i];
     ASSERT_EQ(0u, errors.count(parsed.error())) << parsed.error();

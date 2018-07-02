@@ -21,8 +21,11 @@
 #include <tuple>
 
 #include <mesos/csi/spec.hpp>
+#include <mesos/csi/utils.hpp>
 
 #include <mesos/module/disk_profile_adaptor.hpp>
+
+#include <mesos/resource_provider/storage/disk_profile_utils.hpp>
 
 #include <process/defer.hpp>
 #include <process/delay.hpp>
@@ -39,10 +42,6 @@
 #include <stout/result.hpp>
 #include <stout/strings.hpp>
 
-#include "csi/utils.hpp"
-
-#include "resource_provider/storage/disk_profile_utils.hpp"
-
 using namespace mesos;
 using namespace process;
 
@@ -53,6 +52,9 @@ using std::tuple;
 using google::protobuf::Map;
 
 using mesos::resource_provider::DiskProfileMapping;
+
+using mesos::storage::isSelectedResourceProvider;
+using mesos::storage::parseDiskProfileMapping;
 
 namespace mesos {
 namespace internal {

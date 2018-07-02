@@ -20,6 +20,7 @@
 #include <grpcpp/security/server_credentials.h>
 
 #include <mesos/csi/spec.hpp>
+#include <mesos/csi/utils.hpp>
 
 #include <stout/bytes.hpp>
 #include <stout/flags.hpp>
@@ -33,8 +34,6 @@
 #include <stout/os/ls.hpp>
 #include <stout/os/mkdir.hpp>
 #include <stout/os/rmdir.hpp>
-
-#include "csi/utils.hpp"
 
 #include "linux/fs.hpp"
 

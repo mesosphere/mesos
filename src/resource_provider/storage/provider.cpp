@@ -41,7 +41,11 @@
 #include <mesos/resources.hpp>
 #include <mesos/type_utils.hpp>
 
+#include <mesos/csi/state.hpp>
+#include <mesos/csi/utils.hpp>
+
 #include <mesos/resource_provider/resource_provider.hpp>
+
 #include <mesos/resource_provider/storage/disk_profile_adaptor.hpp>
 
 #include <mesos/v1/resource_provider.hpp>
@@ -61,8 +65,6 @@
 #include "csi/client.hpp"
 #include "csi/paths.hpp"
 #include "csi/rpc.hpp"
-#include "csi/state.hpp"
-#include "csi/utils.hpp"
 
 #include "internal/devolve.hpp"
 #include "internal/evolve.hpp"
