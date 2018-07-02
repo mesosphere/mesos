@@ -20,13 +20,13 @@
 #include <ostream>
 #include <type_traits>
 
-#include <csi/spec.hpp>
-
 #include <google/protobuf/map.h>
 
 #include <google/protobuf/util/json_util.h>
 
 #include <mesos/mesos.hpp>
+
+#include <mesos/csi/spec.hpp>
 
 #include <stout/foreach.hpp>
 #include <stout/try.hpp>

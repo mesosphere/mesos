@@ -20,13 +20,13 @@
 #include <memory>
 #include <string>
 
-#include <csi/spec.hpp>
-
 #include <gmock/gmock.h>
 
 #include <grpcpp/grpcpp.h>
 
 #include <process/grpc.hpp>
+
+#include <mesos/csi/spec.hpp>
 
 #include <stout/none.hpp>
 #include <stout/nothing.hpp>

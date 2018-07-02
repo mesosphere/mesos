@@ -21,9 +21,9 @@
 #include <string>
 #include <tuple>
 
-#include <csi/spec.hpp>
-
 #include <mesos/mesos.hpp>
+
+#include <mesos/csi/spec.hpp>
 
 #include <process/future.hpp>
 

@@ -17,7 +17,7 @@
 #ifndef __CSI_CLIENT_HPP__
 #define __CSI_CLIENT_HPP__
 
-#include <csi/spec.hpp>
+#include <mesos/csi/spec.hpp>
 
 #include <process/grpc.hpp>
 

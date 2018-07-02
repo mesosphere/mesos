@@ -14,12 +14,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <csi/spec.hpp>
-
 #include <grpcpp/server.h>
 #include <grpcpp/server_builder.h>
 #include <grpcpp/server_context.h>
 #include <grpcpp/security/server_credentials.h>
+
+#include <mesos/csi/spec.hpp>
 
 #include <stout/bytes.hpp>
 #include <stout/flags.hpp>

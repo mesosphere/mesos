@@ -19,7 +19,7 @@
 
 #include <ostream>
 
-#include <csi/spec.hpp>
+#include <mesos/csi/spec.hpp>
 
 namespace mesos {
 namespace csi {

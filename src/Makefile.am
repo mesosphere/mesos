@@ -1513,16 +1513,23 @@ libmesos_no_3rdparty_la_LIBADD += libbuild.la
 
 
 # Convenience library for build the CSI client.
+#
+# NOTE: We export generated CSI project headers from this library
+# since Mesos has a hard dependency on a fixed CSI version.
 noinst_LTLIBRARIES += libcsi.la
 libcsi_la_SOURCES =							\
   csi/paths.cpp								\
   csi/utils.cpp
 libcsi_la_SOURCES +=							\
-  ../include/csi/spec.hpp						\
   csi/paths.hpp								\
   csi/state.hpp								\
   csi/state.proto							\
   csi/utils.hpp
+libcsi_ladir = $(pkgincludedir)/csi
+libcsi_la_HEADERS =							\
+  $(top_srcdir)/include/mesos/csi/spec.hpp
+nodist_libcsi_la_HEADERS =						\
+  ../include/csi/csi.pb.h
 
 if ENABLE_GRPC
 libcsi_la_SOURCES +=							\
@@ -1530,6 +1537,8 @@ libcsi_la_SOURCES +=							\
   csi/client.hpp							\
   csi/rpc.cpp								\
   csi/rpc.hpp
+nodist_libcsi_la_HEADERS +=						\
+  ../include/csi/csi.grpc.pb.h
 endif
 
 nodist_libcsi_la_SOURCES = $(CXX_CSI_PROTOS)
