@@ -1012,6 +1012,20 @@ TEST_P(MasterAPITest, GetOperations)
 
   master::Flags masterFlags = CreateMasterFlags();
 
+  {
+    // Default principal is allowed to view any role.
+    mesos::ACL::ViewRole* acl = masterFlags.acls->add_view_roles();
+    acl->mutable_principals()->add_values(DEFAULT_CREDENTIAL.principal());
+    acl->mutable_roles()->set_type(mesos::ACL::Entity::ANY);
+  }
+
+  {
+    // Default principal 2 is not allowed to view any role.
+    mesos::ACL::ViewRole* acl = masterFlags.acls->add_view_roles();
+    acl->mutable_principals()->add_values(DEFAULT_CREDENTIAL_2.principal());
+    acl->mutable_roles()->set_type(mesos::ACL::Entity::NONE);
+  }
+
   Try<Owned<cluster::Master>> master = this->StartMaster(masterFlags);
   ASSERT_SOME(master);
 
@@ -1131,6 +1145,31 @@ TEST_P(MasterAPITest, GetOperations)
   EXPECT_EQ(
       operation->operation_uuid(),
       v1Response->get_operations().operations(0).uuid());
+
+  // Default principal 2 should not be able to see any operations.
+  http::Headers headers = createBasicAuthHeaders(DEFAULT_CREDENTIAL_2);
+  headers["Accept"] = stringify(contentType);
+
+  v1Response =
+    http::post(
+        master.get()->pid,
+        "api/v1",
+        headers,
+        serialize(contentType, v1Call),
+        stringify(contentType))
+      .then([contentType](const http::Response& response)
+          -> Future<v1::master::Response> {
+            if (response.status != http::OK().status) {
+              return Failure("Unexpected response status " + response.status);
+            }
+            return deserialize<v1::master::Response>(
+                contentType, response.body);
+          });
+
+  AWAIT_READY(v1Response);
+  ASSERT_TRUE(v1Response->IsInitialized());
+  ASSERT_EQ(v1::master::Response::GET_OPERATIONS, v1Response->type());
+  EXPECT_TRUE(v1Response->get_operations().operations().empty());
 
   driver.stop();
   driver.join();
@@ -4700,9 +4739,10 @@ public:
   Future<v1::agent::Response> post(
       const process::PID<slave::Slave>& pid,
       const v1::agent::Call& call,
-      const ContentType& contentType)
+      const ContentType& contentType,
+      const Credential& credential = DEFAULT_CREDENTIAL)
   {
-    http::Headers headers = createBasicAuthHeaders(DEFAULT_CREDENTIAL);
+    http::Headers headers = createBasicAuthHeaders(credential);
     headers["Accept"] = stringify(contentType);
 
     return http::post(
@@ -7024,7 +7064,7 @@ TEST_P(AgentAPITest, GetResourceProviders)
   // resource provider resources.
   AWAIT_READY(updateSlaveMessage);
 
-  v1Response = post(slave.get()->pid, v1Call, contentType);
+  v1Response = post(slave.get()->pid, v1Call, contentType, DEFAULT_CREDENTIAL);
 
   AWAIT_READY(v1Response);
   ASSERT_TRUE(v1Response->IsInitialized());
@@ -7067,6 +7107,21 @@ TEST_P(AgentAPITest, GetOperations)
     FUTURE_PROTOBUF(UpdateSlaveMessage(), _, _);
 
   slave::Flags slaveFlags = CreateSlaveFlags();
+  slaveFlags.authenticate_http_readwrite = true;
+
+  {
+    // Default principal is allowed to view any role.
+    mesos::ACL::ViewRole* acl = slaveFlags.acls->add_view_roles();
+    acl->mutable_principals()->add_values(DEFAULT_CREDENTIAL.principal());
+    acl->mutable_roles()->set_type(mesos::ACL::Entity::ANY);
+  }
+
+  {
+    // Default principal 2 is not allowed to view any role.
+    mesos::ACL::ViewRole* acl = slaveFlags.acls->add_view_roles();
+    acl->mutable_principals()->add_values(DEFAULT_CREDENTIAL_2.principal());
+    acl->mutable_roles()->set_type(mesos::ACL::Entity::NONE);
+  }
 
   Try<Owned<cluster::Slave>> agent = StartSlave(detector.get(), slaveFlags);
   ASSERT_SOME(agent);
@@ -7176,6 +7231,31 @@ TEST_P(AgentAPITest, GetOperations)
   EXPECT_EQ(
       operation->operation_uuid(),
       v1Response->get_operations().operations(0).uuid());
+
+  // Default principal 2 should not be able to see any operations.
+  http::Headers headers = createBasicAuthHeaders(DEFAULT_CREDENTIAL_2);
+  headers["Accept"] = stringify(contentType);
+
+  v1Response =
+    http::post(
+        agent.get()->pid,
+        "api/v1",
+        headers,
+        serialize(contentType, v1Call),
+        stringify(contentType))
+      .then([contentType](const http::Response& response)
+          -> Future<v1::agent::Response> {
+            if (response.status != http::OK().status) {
+              return Failure("Unexpected response status " + response.status);
+            }
+            return deserialize<v1::agent::Response>(
+                contentType, response.body);
+          });
+
+  AWAIT_READY(v1Response);
+  ASSERT_TRUE(v1Response->IsInitialized());
+  ASSERT_EQ(v1::agent::Response::GET_OPERATIONS, v1Response->type());
+  EXPECT_TRUE(v1Response->get_operations().operations().empty());
 
   driver.stop();
   driver.join();
