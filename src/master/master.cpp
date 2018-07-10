@@ -8699,6 +8699,9 @@ void Master::offer(
   // and a single allocation role.
   ResourceOffersMessage message;
 
+  // We keep track of the offer IDs so that we can log them.
+  vector<OfferID> offerIds;
+
   foreachkey (const string& role, resources) {
     foreachpair (const SlaveID& slaveId,
                  const Resources& offered,
@@ -8843,6 +8846,13 @@ void Master::offer(
       // Add the offer *AND* the corresponding slave's PID.
       message.add_offers()->MergeFrom(offer_);
       message.add_pids(slave->pid);
+
+      offerIds.push_back(offer_.id());
+
+      VLOG(2) << "Sending offer " << offer_.id()
+              << " containing resources " << offered
+              << " on agent " << *slave
+              << " to framework " << *framework;
     }
   }
 
@@ -8850,8 +8860,7 @@ void Master::offer(
     return;
   }
 
-  LOG(INFO) << "Sending " << message.offers().size()
-            << " offers to framework " << *framework;
+  LOG(INFO) << "Sending offers " << offerIds << " to framework " << *framework;
 
   framework->send(message);
 }
@@ -8939,8 +8948,13 @@ void Master::inverseOffer(
     return;
   }
 
-  LOG(INFO) << "Sending " << message.inverse_offers().size()
-            << " inverse offers to framework " << *framework;
+  vector<OfferID> inverseOfferIds;
+  foreach (const InverseOffer& inverseOffer, message.inverse_offers()) {
+    inverseOfferIds.push_back(inverseOffer.id());
+  }
+
+  LOG(INFO) << "Sending inverse offers " << inverseOfferIds << " to framework "
+            << *framework;
 
   framework->send(message);
 }
