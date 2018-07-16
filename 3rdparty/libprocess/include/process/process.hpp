@@ -32,6 +32,8 @@
 #include <process/owned.hpp>
 #include <process/pid.hpp>
 
+#include <process/metrics/counter.hpp>
+
 #include <stout/duration.hpp>
 #include <stout/hashmap.hpp>
 #include <stout/lambda.hpp>
@@ -68,6 +70,33 @@ namespace firewall {
 void install(std::vector<Owned<FirewallRule>>&& rules);
 
 } // namespace firewall {
+
+
+// Metrics that can be instrumented for every process. Note that this
+// is called `ProcessBaseMetrics` and defined outside of the
+// `ProcessBase` class so that it does not conflict with anyone
+// creating their own metrics structs and calling them `Metrics`.
+struct ProcessBaseMetrics
+{
+  ProcessBaseMetrics(const UPID& pid);
+
+  // We have an explicit `remove()` function instead of doing the
+  // metrics removal in the destructor so that `ProcessBaseMetrics`
+  // can be copyable.
+  void remove();
+
+  metrics::Counter message_events_enqueued;
+  metrics::Counter message_events_dequeued;
+  metrics::Counter http_events_enqueued;
+  metrics::Counter http_events_dequeued;
+  metrics::Counter dispatch_events_enqueued;
+  metrics::Counter dispatch_events_dequeued;
+  metrics::Counter exited_events_enqueued;
+  metrics::Counter exited_events_dequeued;
+  metrics::Counter terminate_events_enqueued;
+  metrics::Counter terminate_events_dequeued;
+};
+
 
 class ProcessBase : public EventConsumer
 {
@@ -494,6 +523,9 @@ private:
 
   // Process PID.
   UPID pid;
+
+  // Metrics for this process.
+  Option<ProcessBaseMetrics> metrics;
 };
 
 

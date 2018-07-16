@@ -51,6 +51,7 @@
 #include <memory> // TODO(benh): Replace shared_ptr with unique_ptr.
 #include <mutex>
 #include <queue>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <stack>
@@ -257,6 +258,22 @@ struct Flags : public virtual flags::FlagsBase
         "If set to false, disables the memory profiling functionality\n"
         "of libprocess.",
         false);
+
+    add(&Flags::instrument_processes,
+        "instrument_processes",
+        "List of processes to instrument for metrics. Note that you\n"
+        "can use a regular expression to match a process, e.g., for\n"
+        "processes that generate an id you could use a pattern such\n"
+        "as \"name\\\\([0-9]+\\\\)\". Note that this is a list of\n"
+        "patterns so we'll first tokenize the string using ',' which\n"
+        "means that you can't use ',' in your regular expression.");
+
+    // TODO(benh): consider adding the ability to modify the set of
+    // instrumented processes dynamically via an HTTP endpoint.
+
+    // TODO(benh): Add the ability to instrument processes for metrics
+    // in an _aggregated_ way so that even as processes come and go we
+    // can collect metrics for them over time.
   }
 
   Option<net::IP> ip;
@@ -266,6 +283,7 @@ struct Flags : public virtual flags::FlagsBase
   Option<int> advertise_port;
   bool require_peer_address_ip_match;
   bool memory_profiling;
+  Option<set<string>> instrument_processes;
 };
 
 } // namespace internal {
@@ -612,6 +630,28 @@ void unsetCallbacks()
 void Clock::settle()
 {
   process_manager->settle();
+}
+
+
+// Helper for determining if a process id has been requested to be
+// instrumented for metrics.
+static bool instrument_process(const UPID& pid)
+{
+  const auto& instrument_processes = libprocess_flags->instrument_processes;
+
+  if (instrument_processes.isNone()) {
+    return false;
+  }
+
+  foreach (const string& pattern, instrument_processes.get()) {
+    std::regex regex(pattern);
+    std::smatch match;
+    if (std::regex_match(static_cast<const string&>(pid.id), match, regex)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 
@@ -2959,12 +2999,53 @@ void ProcessManager::resume(ProcessBase* process)
     if (!blocked) {
       CHECK_NOTNULL(event);
 
+      if (process->metrics.isSome()) {
+        // Update the metrics for this event.
+        struct Visitor : EventVisitor
+        {
+          explicit Visitor(ProcessBase* process) : process(process) {}
+
+          virtual void visit(const MessageEvent&)
+          {
+            process->metrics->message_events_dequeued++;
+          }
+
+          virtual void visit(const HttpEvent&)
+          {
+            process->metrics->http_events_dequeued++;
+          }
+
+          virtual void visit(const DispatchEvent&)
+          {
+            process->metrics->dispatch_events_dequeued++;
+          }
+
+          virtual void visit(const ExitedEvent&)
+          {
+            process->metrics->exited_events_dequeued++;
+          }
+
+          virtual void visit(const TerminateEvent&)
+          {
+            process->metrics->terminate_events_dequeued++;
+          }
+
+          ProcessBase* process;
+        } visitor(process);
+
+        event->visit(&visitor);
+      }
+
       // Before serving this event check if we've triggered a
       // terminate and if so purge all events until we get to the
       // terminate event.
       terminate = process->termination.load();
       if (terminate) {
         // Now purge all events until the terminate event.
+        //
+        // NOTE: we currently don't consider these "dequeued" events
+        // with respect to metrics because they do not get served (or
+        // even filtered).
         while (!event->is<TerminateEvent>()) {
           delete event;
           event = process->events->consumer.dequeue();
@@ -3412,6 +3493,56 @@ Future<Response> ProcessManager::__processes__(const Request&)
 }
 
 
+ProcessBaseMetrics::ProcessBaseMetrics(const UPID& pid)
+  : message_events_enqueued(path::join(
+        "metrics", "processes", pid.id, "message_events_enqueued")),
+    message_events_dequeued(path::join(
+        "metrics", "processes", pid.id, "message_events_dequeued")),
+    http_events_enqueued(path::join(
+        "metrics", "processes", pid.id, "http_events_enqueued")),
+    http_events_dequeued(path::join(
+        "metrics", "processes", pid.id, "http_events_dequeued")),
+    dispatch_events_enqueued(path::join(
+        "metrics", "processes", pid.id, "dispatch_events_enqueued")),
+    dispatch_events_dequeued(path::join(
+        "metrics", "processes", pid.id, "dispatch_events_dequeued")),
+    exited_events_enqueued(path::join(
+        "metrics", "processes", pid.id, "exited_events_enqueued")),
+    exited_events_dequeued(path::join(
+        "metrics", "processes", pid.id, "exited_events_dequeued")),
+    terminate_events_enqueued(path::join(
+        "metrics", "processes", pid.id, "terminate_events_enqueued")),
+    terminate_events_dequeued(path::join(
+        "metrics", "processes", pid.id, "terminate_events_dequeued"))
+{
+  metrics::add(message_events_enqueued);
+  metrics::add(message_events_dequeued);
+  metrics::add(http_events_enqueued);
+  metrics::add(http_events_dequeued);
+  metrics::add(dispatch_events_enqueued);
+  metrics::add(dispatch_events_dequeued);
+  metrics::add(exited_events_enqueued);
+  metrics::add(exited_events_dequeued);
+  metrics::add(terminate_events_enqueued);
+  metrics::add(terminate_events_dequeued);
+}
+
+
+void ProcessBaseMetrics::remove()
+{
+  metrics::remove(message_events_enqueued);
+  metrics::remove(message_events_dequeued);
+  metrics::remove(http_events_enqueued);
+  metrics::remove(http_events_dequeued);
+  metrics::remove(dispatch_events_enqueued);
+  metrics::remove(dispatch_events_dequeued);
+  metrics::remove(exited_events_enqueued);
+  metrics::remove(exited_events_dequeued);
+  metrics::remove(terminate_events_enqueued);
+  metrics::remove(terminate_events_dequeued);
+}
+
+
 ProcessBase::ProcessBase(const string& id)
   : events(new EventQueue()),
     reference(std::make_shared<ProcessBase*>(this)),
@@ -3422,6 +3553,11 @@ ProcessBase::ProcessBase(const string& id)
   pid.id = id != "" ? id : ID::generate();
   pid.address = __address__;
   pid.addresses.v6 = __address6__;
+
+  // Instrument this process for metrics if requested.
+  if (instrument_process(pid)) {
+    metrics = ProcessBaseMetrics(pid);
+  }
 
   // If using a manual clock, try and set current time of process
   // using happens before relationship between creator (__process__)
@@ -3436,6 +3572,10 @@ ProcessBase::~ProcessBase()
 {
   CHECK(state.load() == ProcessBase::State::BOTTOM ||
         state.load() == ProcessBase::State::TERMINATING);
+
+  if (metrics.isSome()) {
+    metrics->remove();
+  }
 }
 
 
@@ -3485,6 +3625,56 @@ void ProcessBase::enqueue(Event* event)
 
   State old = state.load();
 
+  if (old == State::TERMINATING) {
+    delete event;
+    return;
+  }
+
+  CHECK(old == State::BOTTOM ||
+        old == State::READY ||
+        old == State::BLOCKED);
+
+  // Update the metrics if this process has metrics.
+  //
+  // NOTE: we must do this _BEFORE_ we enqueue it's possible that the
+  // event will get deleted after we enqueue it and before we try and
+  // use it again!
+  if (metrics.isSome()) {
+    struct Visitor : EventVisitor
+    {
+      explicit Visitor(ProcessBase* process) : process(process) {}
+
+      virtual void visit(const MessageEvent&)
+      {
+        process->metrics->message_events_enqueued++;
+      }
+
+      virtual void visit(const HttpEvent&)
+      {
+        process->metrics->http_events_enqueued++;
+      }
+
+      virtual void visit(const DispatchEvent&)
+      {
+        process->metrics->dispatch_events_enqueued++;
+      }
+
+      virtual void visit(const ExitedEvent&)
+      {
+        process->metrics->exited_events_enqueued++;
+      }
+
+      virtual void visit(const TerminateEvent&)
+      {
+        process->metrics->terminate_events_enqueued++;
+      }
+
+      ProcessBase* process;
+    } visitor(this);
+
+    event->visit(&visitor);
+  }
+
   // Need to check if this is a terminate event _BEFORE_ we enqueue
   // because it's possible that it'll get deleted after we enqueue it
   // and before we use it again!
@@ -3492,16 +3682,7 @@ void ProcessBase::enqueue(Event* event)
     event->is<TerminateEvent>() &&
     event->as<TerminateEvent>().inject;
 
-  switch (old) {
-    case State::BOTTOM:
-    case State::READY:
-    case State::BLOCKED:
-      events->producer.enqueue(event);
-      break;
-    case State::TERMINATING:
-      delete event;
-      return;
-  }
+  events->producer.enqueue(event);
 
   // We need to store terminate _AFTER_ we enqueue the event because
   // the code in `ProcessMNager::resume` assumes that if it sees

@@ -56,6 +56,7 @@
 #include <stout/lambda.hpp>
 #include <stout/nothing.hpp>
 #include <stout/os.hpp>
+#include <stout/path.hpp>
 #include <stout/stopwatch.hpp>
 #include <stout/stringify.hpp>
 #include <stout/try.hpp>
@@ -80,6 +81,7 @@ using process::Event;
 using process::Executor;
 using process::ExitedEvent;
 using process::Future;
+using process::LibprocessTest;
 using process::Message;
 using process::MessageEncoder;
 using process::MessageEvent;
@@ -2077,6 +2079,62 @@ TEST_F(ProcessTest, FirewallUninstall)
   EXPECT_EQ(http::Status::OK, response->code);
   EXPECT_EQ(http::Status::string(http::Status::OK),
             response->status);
+
+  terminate(process);
+  wait(process);
+}
+
+
+class InstrumentProcessesTest : public LibprocessTest {};
+
+
+class InstrumentedProcess : public Process<InstrumentedProcess>
+{
+public:
+  InstrumentedProcess() : ProcessBase(process::ID::generate("instrumented")) {}
+
+  void initialize() override
+  {
+    route("/path", None(), [](const http::Request&) {
+      return http::OK();
+    });
+  }
+
+  // TODO(benh): also test other event types?
+};
+
+
+TEST_F(InstrumentProcessesTest, InstrumentProcesses)
+{
+  reinitialize(
+      {{"LIBPROCESS_INSTRUMENT_PROCESSES", "instrumented\\([0-9]+\\)"}});
+
+  InstrumentedProcess process;
+  spawn(process);
+
+  // Perform an HTTP Get to drive some metrics.
+  Future<http::Response> response = http::get(process.self(), "/path");
+
+  AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  // Get the metrics.
+  UPID metrics("metrics", process::address());
+
+  response = http::get(metrics, "/snapshot");
+
+  AWAIT_ASSERT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  Try<JSON::Object> json = JSON::parse<JSON::Object>(response->body);
+  ASSERT_SOME(json);
+
+  const string metric = path::join(
+      "metrics",
+      "processes",
+      process.self().id,
+      "http_events_enqueued");
+
+  ASSERT_EQ(1u, json->values.count(metric));
+  EXPECT_LT(0.0, json->values[metric].as<JSON::Number>().as<double>());
 
   terminate(process);
   wait(process);
