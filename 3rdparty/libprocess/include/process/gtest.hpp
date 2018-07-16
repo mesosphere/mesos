@@ -35,6 +35,68 @@ namespace process {
 constexpr char READONLY_HTTP_AUTHENTICATION_REALM[] = "libprocess-readonly";
 constexpr char READWRITE_HTTP_AUTHENTICATION_REALM[] = "libprocess-readwrite";
 
+// Forward declare this internal function that is used to reinitialize
+// libprocess in order to test against different flags, i.e.,
+// `instrument_processes`.
+void reinitialize(
+    const Option<std::string>& delegate,
+    const Option<std::string>& readonlyAuthenticationRealm,
+    const Option<std::string>& readwriteAuthenticationRealm);
+
+// A test fixture for being able to reinitialize the library with
+// flags (as environment variables) that will get undone when tearing
+// down the test.
+class LibprocessTest : public ::testing::Test
+{
+protected:
+  void reinitialize(
+      const hashmap<std::string, std::string>& flags = {},
+      const Option<std::string>& delegate = None(),
+      const Option<std::string>& readonlyAuthenticationRealm =
+        READWRITE_HTTP_AUTHENTICATION_REALM,
+      const Option<std::string>& readwriteAuthenticationRealm =
+        READONLY_HTTP_AUTHENTICATION_REALM)
+  {
+    foreachpair (const auto& key, const auto& value, flags) {
+      values[key] = os::getenv(key);
+      os::setenv(key, value);
+    }
+
+    process::reinitialize(
+        delegate,
+        readonlyAuthenticationRealm,
+        readwriteAuthenticationRealm);
+
+    reinitialized = true;
+  }
+
+  virtual void TearDown()
+  {
+    if (reinitialized) {
+      foreachpair (const auto& key, const auto& value, values) {
+        os::unsetenv(key);
+        if (value.isSome()) {
+          os::setenv(key, value.get());
+        }
+      }
+
+      values.clear();
+
+      process::reinitialize(
+          None(),
+          READWRITE_HTTP_AUTHENTICATION_REALM,
+          READONLY_HTTP_AUTHENTICATION_REALM);
+
+      reinitialized = false;
+    }
+  }
+
+private:
+  bool reinitialized = false;
+  hashmap<std::string, Option<std::string>> values;
+};
+
+
 // A simple test event listener that makes sure to resume the clock
 // after each test even if the previous test had a partial result
 // (i.e., an ASSERT_* failed).
