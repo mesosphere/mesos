@@ -283,8 +283,10 @@ void HierarchicalAllocatorProcess::addFramework(
 
     if (suppressedRoles.count(role)) {
       frameworkSorters.at(role)->deactivate(frameworkId.value());
+      framework.metrics->suppressRole(role);
     } else {
       frameworkSorters.at(role)->activate(frameworkId.value());
+      framework.metrics->reviveRole(role);
     }
   }
 
@@ -452,6 +454,10 @@ void HierarchicalAllocatorProcess::updateFramework(
     return result;
   }();
 
+  foreach (const string& role, newSuppressedRoles) {
+    framework.metrics->suppressRole(role);
+  }
+
   foreach (const string& role, removedRoles | newSuppressedRoles) {
     CHECK(frameworkSorters.contains(role));
     frameworkSorters.at(role)->deactivate(frameworkId.value());
@@ -467,6 +473,8 @@ void HierarchicalAllocatorProcess::updateFramework(
     if (framework.offerFilters.contains(role)) {
       framework.offerFilters.erase(role);
     }
+
+    framework.metrics->removeSubscribedRole(role);
   }
 
   const set<string> addedRoles = [&]() {
@@ -485,7 +493,13 @@ void HierarchicalAllocatorProcess::updateFramework(
     return result;
   }();
 
+  foreach (const string& role, newRevivedRoles) {
+    framework.metrics->reviveRole(role);
+  }
+
   foreach (const string& role, addedRoles) {
+    framework.metrics->addSubscribedRole(role);
+
     // NOTE: It's possible that we're already tracking this framework
     // under the role because a framework can unsubscribe from a role
     // while it still has resources allocated to the role.
@@ -750,6 +764,7 @@ void HierarchicalAllocatorProcess::removeFilters(const SlaveID& slaveId)
       if (erased) {
         frameworkSorters.at(role)->activate(id.value());
         framework.suppressedRoles.erase(role);
+        framework.metrics->reviveRole(role);
       }
     }
   }
@@ -1314,6 +1329,7 @@ void HierarchicalAllocatorProcess::suppressOffers(
 
     frameworkSorters.at(role)->deactivate(frameworkId.value());
     framework.suppressedRoles.insert(role);
+    framework.metrics->suppressRole(role);
   }
 
   LOG(INFO) << "Suppressed offers for roles " << stringify(roles)
@@ -1342,6 +1358,7 @@ void HierarchicalAllocatorProcess::reviveOffers(
 
     frameworkSorters.at(role)->activate(frameworkId.value());
     framework.suppressedRoles.erase(role);
+    framework.metrics->reviveRole(role);
   }
 
   // We delete each actual `OfferFilter` when
