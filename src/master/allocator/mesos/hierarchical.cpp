@@ -157,7 +157,8 @@ void HierarchicalAllocatorProcess::initialize(
     const Option<set<string>>& _fairnessExcludeResourceNames,
     bool _filterGpuResources,
     const Option<DomainInfo>& _domain,
-    const Option<std::vector<Resources>>& _minAllocatableResources)
+    const Option<std::vector<Resources>>& _minAllocatableResources,
+    const size_t maxCompletedFrameworks)
 {
   allocationInterval = _allocationInterval;
   offerCallback = _offerCallback;
@@ -168,6 +169,10 @@ void HierarchicalAllocatorProcess::initialize(
   minAllocatableResources = _minAllocatableResources;
   initialized = true;
   paused = false;
+
+  completedFrameworkMetrics =
+    BoundedHashMap<FrameworkID, process::Owned<FrameworkMetrics>>(
+        maxCompletedFrameworks);
 
   // Resources for quota'ed roles are allocated separately and prior to
   // non-quota'ed roles, hence a dedicated sorter for quota'ed roles is
@@ -313,7 +318,7 @@ void HierarchicalAllocatorProcess::removeFramework(
   CHECK(initialized);
   CHECK(frameworks.contains(frameworkId)) << frameworkId;
 
-  const Framework& framework = frameworks.at(frameworkId);
+  Framework& framework = frameworks.at(frameworkId);
 
   foreach (const string& role, framework.roles) {
     // Might not be in 'frameworkSorters[role]' because it
@@ -337,6 +342,12 @@ void HierarchicalAllocatorProcess::removeFramework(
 
     untrackFrameworkUnderRole(frameworkId, role);
   }
+
+  // Transfer ownership of this framework's metrics to
+  // `completedFrameworkMetrics`.
+  completedFrameworkMetrics.set(
+      frameworkId,
+      Owned<FrameworkMetrics>(framework.metrics.release()));
 
   // Do not delete the filters contained in this
   // framework's `offerFilters` hashset yet, see comments in

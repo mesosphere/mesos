@@ -60,7 +60,8 @@ public:
         fairnessExcludeResourceNames = None(),
       bool filterGpuResources = true,
       const Option<DomainInfo>& domain = None(),
-      const Option<std::vector<Resources>>& minAllocatableResources = None());
+      const Option<std::vector<Resources>>& minAllocatableResources = None(),
+      const size_t maxCompletedFrameworks = 0);
 
   void recover(
       const int expectedAgentCount,
@@ -208,7 +209,8 @@ public:
       bool filterGpuResources = true,
       const Option<DomainInfo>& domain = None(),
       const Option<std::vector<Resources>>&
-        minAllocatableResources = None()) = 0;
+        minAllocatableResources = None(),
+      const size_t maxCompletedFrameworks = 0) = 0;
 
   virtual void recover(
       const int expectedAgentCount,
@@ -364,7 +366,8 @@ inline void MesosAllocator<AllocatorProcess>::initialize(
     const Option<std::set<std::string>>& fairnessExcludeResourceNames,
     bool filterGpuResources,
     const Option<DomainInfo>& domain,
-    const Option<std::vector<Resources>>& minAllocatableResources)
+    const Option<std::vector<Resources>>& minAllocatableResources,
+    const size_t maxCompletedFrameworks)
 {
   process::dispatch(
       process,
@@ -375,7 +378,8 @@ inline void MesosAllocator<AllocatorProcess>::initialize(
       fairnessExcludeResourceNames,
       filterGpuResources,
       domain,
-      minAllocatableResources);
+      minAllocatableResources,
+      maxCompletedFrameworks);
 }
 
 

@@ -26,6 +26,7 @@
 #include <process/id.hpp>
 #include <process/owned.hpp>
 
+#include <stout/boundedhashmap.hpp>
 #include <stout/duration.hpp>
 #include <stout/hashmap.hpp>
 #include <stout/hashset.hpp>
@@ -87,6 +88,7 @@ public:
     : initialized(false),
       paused(true),
       metrics(*this),
+      completedFrameworkMetrics(0),
       roleSorter(roleSorterFactory()),
       quotaRoleSorter(quotaRoleSorterFactory()),
       frameworkSorterFactory(_frameworkSorterFactory) {}
@@ -113,7 +115,8 @@ public:
       bool filterGpuResources = true,
       const Option<DomainInfo>& domain = None(),
       const Option<std::vector<Resources>>&
-        minAllocatableResources = None());
+        minAllocatableResources = None(),
+      const size_t maxCompletedFrameworks = 0);
 
   void recover(
       const int _expectedAgentCount,
@@ -355,6 +358,9 @@ protected:
       const std::string& role);
 
   hashmap<FrameworkID, Framework> frameworks;
+
+  BoundedHashMap<FrameworkID, process::Owned<FrameworkMetrics>>
+    completedFrameworkMetrics;
 
   class Slave
   {
