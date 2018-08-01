@@ -5072,6 +5072,10 @@ void Master::_accept(
                       << (launchExecutor ?
                           " new executor" : " existing executor");
 
+            // Increment this metric here for LAUNCH since it
+            // does not make use of the `_apply()` function.
+            framework->metrics.incrementOperation(operation);
+
             send(slave->pid, message);
           }
         }
@@ -5278,6 +5282,10 @@ void Master::_accept(
                   << totalResources -  executorResources << " on agent "
                   << *slave << " on "
                   << (launchExecutor ? " new executor" : " existing executor");
+
+        // Increment this metric here for LAUNCH_GROUP since it
+        // does not make use of the `_apply()` function.
+        framework->metrics.incrementOperation(operation);
 
         send(slave->pid, message);
 
@@ -10791,6 +10799,12 @@ void Master::_apply(
               << " to agent " << *slave;
 
     send(slave->pid, message);
+  }
+
+  if (framework != nullptr) {
+    // We increment per-framework operation metrics for all operations except
+    // LAUNCH and LAUNCH_GROUP here.
+    framework->metrics.incrementOperation(operationInfo);
   }
 }
 
