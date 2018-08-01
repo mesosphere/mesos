@@ -1740,6 +1740,7 @@ private:
   Master& operator=(const Master&); // No assigning.
 
   friend struct Framework;
+  friend struct FrameworkMetrics;
   friend struct Metrics;
   friend struct Slave;
   friend struct SlavesWriter;
@@ -2813,6 +2814,8 @@ struct Framework
   void trackUnderRole(const std::string& role);
   void untrackUnderRole(const std::string& role);
 
+  void setFrameworkState(const State& _state);
+
   Master* const master;
 
   FrameworkInfo info;
@@ -2922,7 +2925,6 @@ private:
       info(_info),
       roles(protobuf::framework::getRoles(_info)),
       capabilities(_info.capabilities()),
-      state(state),
       registeredTime(time),
       reregisteredTime(time),
       completedTasks(masterFlags.max_completed_tasks_per_framework),
@@ -2930,6 +2932,8 @@ private:
       metrics(_info)
   {
     CHECK(_info.has_id());
+
+    setFrameworkState(state);
 
     foreach (const std::string& role, roles) {
       // NOTE: It's possible that we're already being tracked under the role

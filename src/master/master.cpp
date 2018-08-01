@@ -452,6 +452,13 @@ void Framework::untrackUnderRole(const string& role)
 }
 
 
+void Framework::setFrameworkState(const Framework::State& _state)
+{
+  state = _state;
+  metrics.subscribed = state == Framework::State::ACTIVE ? 1 : 0;
+}
+
+
 void Master::initialize()
 {
   LOG(INFO) << "Master " << info_.id() << " (" << info_.hostname() << ")"
@@ -3234,7 +3241,7 @@ void Master::_subscribe(
       // NOTE: We do this after recovering resources (above) so that
       // the allocator has the correct view of the framework's share.
       if (!framework->active()) {
-        framework->state = Framework::State::ACTIVE;
+        framework->setFrameworkState(Framework::State::ACTIVE);
         allocator->activateFramework(framework->id());
       }
 
@@ -3348,7 +3355,7 @@ void Master::disconnect(Framework* framework)
 
   LOG(INFO) << "Disconnecting framework " << *framework;
 
-  framework->state = Framework::State::DISCONNECTED;
+  framework->setFrameworkState(Framework::State::DISCONNECTED);
 
   if (framework->pid.isSome()) {
     // Remove the framework from authenticated. This is safe because
@@ -3371,7 +3378,7 @@ void Master::deactivate(Framework* framework, bool rescind)
 
   LOG(INFO) << "Deactivating framework " << *framework;
 
-  framework->state = Framework::State::INACTIVE;
+  framework->setFrameworkState(Framework::State::INACTIVE);
 
   // Tell the allocator to stop allocating resources to this framework.
   allocator->deactivateFramework(framework->id());
@@ -9382,7 +9389,7 @@ Try<Nothing> Master::activateRecoveredFramework(
   }
 
   // Activate the framework.
-  framework->state = Framework::State::ACTIVE;
+  framework->setFrameworkState(Framework::State::ACTIVE);
   allocator->activateFramework(framework->id());
 
   // Export framework metrics if a principal is specified in `FrameworkInfo`.
@@ -9532,7 +9539,7 @@ void Master::_failoverFramework(Framework* framework)
   // NOTE: We do this after recovering resources (above) so that
   // the allocator has the correct view of the framework's share.
   if (!framework->active()) {
-    framework->state = Framework::State::ACTIVE;
+    framework->setFrameworkState(Framework::State::ACTIVE);
     allocator->activateFramework(framework->id());
   }
 
