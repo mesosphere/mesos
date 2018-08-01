@@ -1056,6 +1056,8 @@ Future<Response> Master::Http::scheduler(
     return BadRequest("Framework cannot be found");
   }
 
+  framework->metrics.incrementCall(call.type());
+
   // TODO(greggomann): Move this implicit scheduler authorization
   // into the authorizer. See MESOS-7399.
   if (principal.isSome() && principal != framework->info.principal()) {
