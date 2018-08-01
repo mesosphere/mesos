@@ -10243,6 +10243,8 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
   // task transitioned to a new state.
   bool sendSubscribersUpdate = false;
 
+  Framework* framework = getFramework(task->framework_id());
+
   // Set 'removable' to true if this is the first time the task
   // transitioned to a removable state. Also set the latest state.
   bool removable;
@@ -10256,6 +10258,13 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
         sendSubscribersUpdate = true;
       }
 
+      if (framework != nullptr) {
+        // When we observe a transition away from a non-terminal state,
+        // decrement the relevant metric.
+        framework->metrics.decrementActiveTaskState(task->state());
+        framework->metrics.incrementTaskState(latestState.get());
+      }
+
       task->set_state(latestState.get());
     }
   } else {
@@ -10267,6 +10276,13 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
     if (!protobuf::isTerminalState(task->state())) {
       if (status.state() != task->state()) {
         sendSubscribersUpdate = true;
+      }
+
+      if (framework != nullptr) {
+        // When we observe a transition away from a non-terminal state,
+        // decrement the relevant metric.
+        framework->metrics.decrementActiveTaskState(task->state());
+        framework->metrics.incrementTaskState(status.state());
       }
 
       task->set_state(status.state());
@@ -10300,7 +10316,6 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
     // transitioned to `TASK_KILLED` by `removeFramework()`, thus
     // `sendSubscribersUpdate` shouldn't have been set to true.
     // TODO(chhsiao): This may be changed after MESOS-6608 is resolved.
-    Framework* framework = getFramework(task->framework_id());
     CHECK_NOTNULL(framework);
 
     subscribers.send(
@@ -10329,7 +10344,6 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
 
     slave->recoverResources(task);
 
-    Framework* framework = getFramework(task->framework_id());
     if (framework != nullptr) {
       framework->recoverResources(task);
     }
