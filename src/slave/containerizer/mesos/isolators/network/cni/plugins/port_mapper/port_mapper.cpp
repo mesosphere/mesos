@@ -363,13 +363,22 @@ Try<Nothing> PortMapper::delPortMapping()
   string script = strings::format(
       R"~(
       #!/bin/sh
-      exec 1>&2
       set -x
+
+      FILE=$(mktemp)
+
+      cleanup() {
+        rm -f "$FILE"
+      }
+
+      trap cleanup EXIT
 
       # The iptables command searches for the DNAT rules with tag
       # "container_id: <CNI_CONTAINERID>", and if it exists goes ahead
       # and deletes it.
-      iptables -w -t nat -S %s | sed "/%s/ s/-A/iptables -w -t nat -D/e")~",
+      iptables -w -t nat -S %s | sed -n "/%s/ s/-A/iptables -w -t nat -D/p" > $FILE
+      sh $FILE
+      )~",
       chain,
       getIptablesRuleTag()).get();
 
