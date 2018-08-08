@@ -525,6 +525,10 @@ Future<Nothing> CgroupsIsolatorProcess::isolate(
 
   // TODO(haosdent): Use foreachkey once MESOS-5037 is resolved.
   foreach (const string& hierarchy, subsystems.keys()) {
+    LOG(INFO) << "!!!!: Calling cgroups assign; hierarchy: " << hierarchy
+              << "; cgroup: " << infos[rootContainerId]->cgroup
+              << "; pid: " << pid << "; for container " << containerId;
+
     Try<Nothing> assign = cgroups::assign(
         hierarchy,
         infos[rootContainerId]->cgroup,
@@ -541,6 +545,8 @@ Future<Nothing> CgroupsIsolatorProcess::isolate(
       return Failure(message);
     }
   }
+
+  LOG(INFO) << "!!!!: Finished cgroup assigns for container " << containerId;
 
   // We currently can't call `subsystem->isolate()` on nested
   // containers, because we don't call `prepare()`, `recover()`, or
@@ -560,11 +566,18 @@ Future<Nothing> CgroupsIsolatorProcess::isolate(
 
   list<Future<Nothing>> isolates;
   foreachvalue (const Owned<Subsystem>& subsystem, subsystems) {
+    LOG(INFO) << "!!!!: Cgroup subsystem " << subsystem->name() << " starts "
+              << "to call isolate for container " << containerId
+              << " with cgroup: " << infos[containerId]->cgroup
+              << " and pid: " << pid;
     isolates.push_back(subsystem->isolate(
         containerId,
         infos[containerId]->cgroup,
         pid));
   }
+
+  LOG(INFO) << "!!!!: Start to await for isolates for container "
+            << containerId;
 
   return await(isolates)
     .then(defer(
@@ -577,6 +590,8 @@ Future<Nothing> CgroupsIsolatorProcess::isolate(
 Future<Nothing> CgroupsIsolatorProcess::_isolate(
     const list<Future<Nothing>>& futures)
 {
+  LOG(INFO) << "!!!!: await isolates finsihed";
+
   vector<string> errors;
   foreach (const Future<Nothing>& future, futures) {
     if (!future.isReady()) {

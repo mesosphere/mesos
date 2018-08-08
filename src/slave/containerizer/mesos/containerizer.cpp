@@ -1434,6 +1434,8 @@ Future<Nothing> MesosContainerizerProcess::fetch(
 
   const string directory = container->config->directory();
 
+  LOG(INFO) << "!!!!: " << "Start to fetch for container " << containerId;
+
   return fetcher->fetch(
       containerId,
       container->config->command_info(),
@@ -2047,12 +2049,18 @@ Future<Nothing> MesosContainerizerProcess::isolate(
     futures.push_back(isolator->isolate(containerId, _pid));
   }
 
+  LOG(INFO) << "!!!!: " << "Start to collect isolate futures for container "
+            << containerId << " with pid: " << _pid;
+
   // Wait for all isolators to complete.
   Future<list<Nothing>> future = collect(futures);
 
   container->isolation = future;
 
-  return future.then([]() { return Nothing(); });
+  return future.then([]() {
+      LOG(INFO) << "!!!!: " << "Finish collect isolate futures";
+      return Nothing();
+    });
 }
 
 
@@ -2073,6 +2081,9 @@ Future<Containerizer::LaunchResult> MesosContainerizerProcess::exec(
   }
 
   CHECK_EQ(container->state, FETCHING);
+
+  LOG(INFO) << "!!!!: " << "Finish FETCHING for container " << containerId
+            << " and start to write to the pipe: " << pipeWrite;
 
   // Now that we've contained the child we can signal it to continue
   // by writing to the pipe.

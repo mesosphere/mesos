@@ -780,6 +780,9 @@ Future<Nothing> NetworkCniIsolatorProcess::isolate(
     return Nothing();
   }
 
+  LOG(INFO) << "!!!!: " << "CNI Isolator starts to isolate container "
+            << containerId << " with pid: " << pid;
+
   // We first deal with containers (both top level or nested) that
   // want to join the host network. Given the above 'contains' check,
   // the container here must have rootfs defined (otherwise, we won't
@@ -922,6 +925,9 @@ Future<Nothing> NetworkCniIsolatorProcess::isolate(
     futures.push_back(attach(containerId, networkName, target));
   }
 
+  LOG(INFO) << "!!!!: CNI starts to await attach futures for container "
+            << containerId;
+
   // NOTE: Here, we wait for all 'attach()' to finish before returning
   // to make sure DEL on plugin is not called (via 'cleanup()') if some
   // ADD on plugin is still pending.
@@ -940,6 +946,9 @@ Future<Nothing> NetworkCniIsolatorProcess::_isolate(
     pid_t pid,
     const list<Future<Nothing>>& attaches)
 {
+  LOG(INFO) << "!!!!: CNI finishes await attach futures for container "
+            << containerId << " with pid: " << pid;
+
   vector<string> messages;
   foreach (const Future<Nothing>& attach, attaches) {
     if (!attach.isReady()) {
@@ -1139,6 +1148,10 @@ Future<Nothing> NetworkCniIsolatorProcess::attach(
   CHECK(infos.contains(containerId));
   CHECK(infos[containerId]->containerNetworks.contains(networkName));
 
+  LOG(INFO) << "!!!!: " << "CNI Isolator starts to attach container network '"
+            << networkName << "'' to the netNsHandle '" << netNsHandle
+            << "' for container " << containerId;
+
   Try<JSON::Object> networkConfigJSON = getNetworkConfigJSON(networkName);
   if (networkConfigJSON.isError()) {
     return Failure(
@@ -1250,11 +1263,11 @@ Future<Nothing> NetworkCniIsolatorProcess::attach(
         stringify(networkConfigJSON.get()) + "': " + write.error());
   }
 
-  VLOG(1) << "Invoking CNI plugin '" << plugin.get()
-          << "' with network configuration '"
-          << stringify(networkConfigJSON.get())
-          << "' to attach container " << containerId << " to network '"
-          << networkName << "'";
+  LOG(INFO) << "!!!!: Invoking CNI plugin '" << plugin.get()
+            << "' with network configuration '"
+            << stringify(networkConfigJSON.get())
+            << "' to attach container " << containerId << " to network '"
+            << networkName << "'";
 
   Try<Subprocess> s = subprocess(
       plugin.get(),
@@ -1270,6 +1283,9 @@ Future<Nothing> NetworkCniIsolatorProcess::attach(
         "Failed to execute the CNI plugin '" +
         plugin.get() + "': " + s.error());
   }
+
+  LOG(INFO) << "!!!!: " << "Start to await for plugin '" << plugin.get()
+            << "' to finish for container " << containerId;
 
   return await(s->status(), io::read(s->out().get()), io::read(s->err().get()))
     .then(defer(
@@ -1290,6 +1306,9 @@ Future<Nothing> NetworkCniIsolatorProcess::_attach(
 {
   CHECK(infos.contains(containerId));
   CHECK(infos[containerId]->containerNetworks.contains(networkName));
+
+  LOG(INFO) << "!!!!: " << "Plugin await finished for container "
+            << containerId;
 
   const Future<Option<int>>& status = std::get<0>(t);
   if (!status.isReady()) {
@@ -1370,6 +1389,8 @@ Future<Nothing> NetworkCniIsolatorProcess::_attach(
   }
 
   containerNetwork.cniNetworkInfo = parse.get();
+
+  LOG(INFO) << "!!!!: CNI attach finished for container " << containerId;
 
   return Nothing();
 }
