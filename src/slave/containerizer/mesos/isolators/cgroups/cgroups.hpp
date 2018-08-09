@@ -127,6 +127,7 @@ private:
       const std::list<process::Future<Nothing>>& futures);
 
   process::Future<Nothing> _isolate(
+      const ContainerID& containerId,
       const std::list<process::Future<Nothing>>& futures);
 
   void _watch(

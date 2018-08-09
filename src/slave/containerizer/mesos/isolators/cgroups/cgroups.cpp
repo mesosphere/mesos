@@ -583,14 +583,16 @@ Future<Nothing> CgroupsIsolatorProcess::isolate(
     .then(defer(
         PID<CgroupsIsolatorProcess>(this),
         &CgroupsIsolatorProcess::_isolate,
+        containerId,
         lambda::_1));
 }
 
 
 Future<Nothing> CgroupsIsolatorProcess::_isolate(
+    const ContainerID& containerId,
     const list<Future<Nothing>>& futures)
 {
-  LOG(INFO) << "!!!!: await isolates finsihed";
+  LOG(INFO) << "!!!!: await isolates finsihed for container " << containerId;
 
   vector<string> errors;
   foreach (const Future<Nothing>& future, futures) {
