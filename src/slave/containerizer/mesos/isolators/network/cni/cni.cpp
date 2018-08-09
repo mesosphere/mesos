@@ -1285,7 +1285,10 @@ Future<Nothing> NetworkCniIsolatorProcess::attach(
   }
 
   LOG(INFO) << "!!!!: " << "Start to await for plugin '" << plugin.get()
-            << "' to finish for container " << containerId;
+            << "' to finish for container " << containerId
+            << " with pid '" << s->pid() << "'; stdout fd: "
+            << (s->out().isSome() ? s->out().get() : 1)
+            << "; stderr fd: " << (s->err().isSome() ? s->err().get() : 2);
 
   return await(s->status(), io::read(s->out().get()), io::read(s->err().get()))
     .then(defer(
