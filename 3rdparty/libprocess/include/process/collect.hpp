@@ -223,6 +223,19 @@ public:
     }
   }
 
+  virtual void finalize()
+  {
+    std::ostringstream s;
+    foreach (const Future<T>& f, futures) {
+      s << f << "; ";
+    }
+
+    LOG(INFO) << "@@@@: AwaitProcess ProcessBase ID: " << this->getPid().id
+              << "; " << "futures size: " << futures.size()
+              << "; futures: " << s.str()
+              << "ready count: " << ready;
+  }
+
 private:
   void abandoned()
   {

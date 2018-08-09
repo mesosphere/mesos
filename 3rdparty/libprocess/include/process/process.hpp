@@ -386,6 +386,11 @@ protected:
   template <typename T>
   size_t eventCount();
 
+  UPID getPid()
+  {
+    return pid;
+  }
+
 private:
   friend class SocketManager;
   friend class ProcessManager;
