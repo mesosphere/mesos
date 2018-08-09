@@ -100,6 +100,11 @@ void ReaperProcess::wait()
   foreach (pid_t pid, promises.keys()) {
     int status;
     Result<pid_t> child_pid = os::waitpid(pid, &status, WNOHANG);
+    if (child_pid.isError()) {
+      LOG(INFO) << "####: ReaperProcess::wait() pid '" << pid
+                << "' waitpid error: " << child_pid.error();
+    }
+
     if (child_pid.isSome()) {
       // We have reaped a child.
       notify(pid, status);

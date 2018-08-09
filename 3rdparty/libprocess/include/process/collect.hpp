@@ -264,6 +264,20 @@ private:
     CHECK(!future.isPending());
 
     ready += 1;
+
+    size_t index = 0;
+    foreach (const Future<T>& f, futures) {
+      if (future == f) {
+        LOG(INFO) << "$$$$: AwaitProcess waited invoked for ProcessBase ID: "
+                  << this->getPid().id
+                  << "; futures size: " << futures.size()
+                  << "; future: " << f
+                  << "; future index: " << index
+                  << "; ready count: " << ready;
+      }
+      index++;
+    }
+
     if (ready == futures.size()) {
       promise->set(
         std::list<Future<T>>(futures.begin(), futures.end()));
