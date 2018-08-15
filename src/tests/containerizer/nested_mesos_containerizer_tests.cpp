@@ -458,6 +458,9 @@ TEST_F(NestedMesosContainerizerTest,
 
   const std::array<int_fd, 2>& pipes = pipes_.get();
 
+  os::unsetCloexec(pipes[0]);
+  os::unsetCloexec(pipes[1]);
+
   // NOTE: We use a non-shell command here to use 'bash -c' to execute
   // the 'echo', which deals with the file descriptor, because of a bug
   // in ubuntu dash. Multi-digit file descriptor is not supported in
@@ -580,6 +583,9 @@ TEST_F(NestedMesosContainerizerTest,
   const std::array<int_fd, 2>& pipes = pipes_.get();
 
   const string filename = "nested_inherits_work_dir";
+
+  os::unsetCloexec(pipes[0]);
+  os::unsetCloexec(pipes[1]);
 
   // NOTE: We use a non-shell command here to use 'bash -c' to execute
   // the 'echo', which deals with the file descriptor, because of a bug
@@ -1024,6 +1030,9 @@ TEST_F(NestedMesosContainerizerTest,
 
   const std::array<int_fd, 2>& pipes = pipes_.get();
 
+  os::unsetCloexec(pipes[0]);
+  os::unsetCloexec(pipes[1]);
+
   // Launch a command task within the `alpine` docker image and
   // synchronize its launch with the launch of a debug container below.
   TaskInfo task = createTask(
@@ -1397,6 +1406,9 @@ TEST_F(NestedMesosContainerizerTest, ROOT_CGROUPS_ParentExit)
 
   const std::array<int_fd, 2>& pipes = pipes_.get();
 
+  os::unsetCloexec(pipes[0]);
+  os::unsetCloexec(pipes[1]);
+
   // NOTE: We use a non-shell command here to use 'bash -c' to execute
   // the 'read', which deals with the file descriptor, because of a bug
   // in ubuntu dash. Multi-digit file descriptor is not supported in
@@ -1491,6 +1503,9 @@ TEST_F(NestedMesosContainerizerTest, ROOT_CGROUPS_ParentSigterm)
   ASSERT_SOME(pipes_);
 
   const std::array<int_fd, 2>& pipes = pipes_.get();
+
+  os::unsetCloexec(pipes[0]);
+  os::unsetCloexec(pipes[1]);
 
   // NOTE: We use a non-shell command here to use 'bash -c' to execute
   // the 'echo', which deals with the file descriptor, because of a bug

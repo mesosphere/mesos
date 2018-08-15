@@ -1980,6 +1980,9 @@ TEST_F_TEMP_DISABLED_ON_WINDOWS(
 
   const string filename = "nested_inherits_work_dir";
 
+  os::unsetCloexec(pipes[0]);
+  os::unsetCloexec(pipes[1]);
+
   // NOTE: We use a non-shell command here to use 'bash -c' to execute
   // the 'echo', which deals with the file descriptor, because of a bug
   // in ubuntu dash. Multi-digit file descriptor is not supported in
