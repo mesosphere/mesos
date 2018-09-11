@@ -29,6 +29,7 @@
 #include <stout/check.hpp>
 #include <stout/hashmap.hpp>
 #include <stout/option.hpp>
+#include <stout/stringify.hpp>
 
 #include "master/allocator/sorter/drf/metrics.hpp"
 
@@ -323,6 +324,10 @@ struct DRFSorter::Node
 
     void add(const SlaveID& slaveId, const Resources& toAdd)
     {
+      VLOG(2) << "Adding allocation toAdd " << toAdd << " slaveId " << slaveId
+              << " resources " << stringify(resources) << " scalarQuantities "
+              << scalarQuantities;
+
       // Add shared resources to the allocated quantities when the same
       // resources don't already exist in the allocation.
       const Resources sharedToAdd = toAdd.shared()
@@ -341,16 +346,19 @@ struct DRFSorter::Node
       }
 
       count++;
+
+      VLOG(2) << "Added allocation on " << slaveId << " resources "
+              << stringify(resources) << " scalarQuantities "
+              << scalarQuantities;
     }
 
     void subtract(const SlaveID& slaveId, const Resources& toRemove)
     {
-      CHECK(resources.contains(slaveId));
-      CHECK(resources.at(slaveId).contains(toRemove))
-        << "Resources " << resources.at(slaveId) << " at agent " << slaveId
-        << " does not contain " << toRemove;
+      VLOG(2) << "Subtracting allocation toRemove " << toRemove << " slaveId "
+              << slaveId << " resources " << stringify(resources)
+              << " scalarQuantities " << scalarQuantities;
 
-      resources[slaveId] -= toRemove;
+      CHECK(resources.contains(slaveId));
 
       // Remove shared resources from the allocated quantities when there
       // are no instances of same resources left in the allocation.
@@ -362,18 +370,35 @@ struct DRFSorter::Node
       const Resources quantitiesToRemove =
         (toRemove.nonShared() + sharedToRemove).createStrippedScalarQuantity();
 
+      CHECK(resources.at(slaveId).contains(toRemove))
+        << "Resources does not contain toRemove"
+        << " Resources at agent "  << slaveId << ": "<< resources.at(slaveId)
+        << " toRemove: " << toRemove
+        << " scalarQuantities: " << scalarQuantities
+        << " quantitiesToRemove: " << quantitiesToRemove;
+
+      CHECK(scalarQuantities.contains(quantitiesToRemove))
+        << "scalarQuantities does not contain quantitiesToRemove"
+        << " Resources at agent "  << slaveId << ": "<< resources.at(slaveId)
+        << " toRemove: " << toRemove
+        << " scalarQuantities: " << scalarQuantities
+        << " quantitiesToRemove: " << quantitiesToRemove;
+
+      resources[slaveId] -= toRemove;
+
       foreach (const Resource& resource, quantitiesToRemove) {
         totals[resource.name()] -= resource.scalar();
       }
-
-      CHECK(scalarQuantities.contains(quantitiesToRemove))
-        << scalarQuantities << " does not contain " << quantitiesToRemove;
 
       scalarQuantities -= quantitiesToRemove;
 
       if (resources[slaveId].empty()) {
         resources.erase(slaveId);
       }
+
+      VLOG(2) << "Subtracted allocation on " << slaveId
+              << "resources " << stringify(resources) << " scalarQuantities "
+              << scalarQuantities;
     }
 
     void update(
@@ -381,6 +406,11 @@ struct DRFSorter::Node
         const Resources& oldAllocation,
         const Resources& newAllocation)
     {
+      VLOG(2) << "Updating allocation, oldAllocation " << oldAllocation
+              << " newAllocation " << newAllocation << " slaveId " << slaveId
+              << " resources " << stringify(resources) << " scalarQuantities "
+              << scalarQuantities;
+
       const Resources oldAllocationQuantity =
         oldAllocation.createStrippedScalarQuantity();
       const Resources newAllocationQuantity =
@@ -388,11 +418,22 @@ struct DRFSorter::Node
 
       CHECK(resources.contains(slaveId));
       CHECK(resources[slaveId].contains(oldAllocation))
-        << "Resources " << resources[slaveId] << " at agent " << slaveId
-        << " does not contain " << oldAllocation;
+        << "Resources does not contain toRemove"
+        << " Resources at agent " << slaveId << ": " << resources.at(slaveId)
+        << " oldAllocation: " << oldAllocation
+        << " newAllocation: " << newAllocation
+        << " scalarQuantities: " << scalarQuantities
+        << " oldAllocationQuantity: " << oldAllocationQuantity
+        << " newAllocationQuantity: " << newAllocationQuantity;
 
       CHECK(scalarQuantities.contains(oldAllocationQuantity))
-        << scalarQuantities << " does not contain " << oldAllocationQuantity;
+        << scalarQuantities << " does not contain " << oldAllocationQuantity
+        << " Resources at agent " << slaveId << ": " << resources.at(slaveId)
+        << " oldAllocation: " << oldAllocation
+        << " newAllocation: " << newAllocation
+        << " scalarQuantities: " << scalarQuantities
+        << " oldAllocationQuantity: " << oldAllocationQuantity
+        << " newAllocationQuantity: " << newAllocationQuantity;
 
       resources[slaveId] -= oldAllocation;
       resources[slaveId] += newAllocation;
@@ -407,6 +448,10 @@ struct DRFSorter::Node
       foreach (const Resource& resource, newAllocationQuantity) {
         totals[resource.name()] += resource.scalar();
       }
+
+      VLOG(2) << "Updated allocation on " << slaveId
+              << "resources " << stringify(resources) << " scalarQuantities "
+              << scalarQuantities;
     }
 
     // We store the number of times this client has been chosen for
