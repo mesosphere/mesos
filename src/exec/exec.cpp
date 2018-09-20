@@ -578,7 +578,8 @@ protected:
     // the HTTP API, this can be overwritten by the slave instead.
     update->mutable_status()->mutable_slave_id()->CopyFrom(slaveId);
 
-    VLOG(1) << "Executor sending status update " << *update;
+    LOG(INFO) << "==========Executor sending status update "
+              << *update << "==========";
 
     // Capture the status update.
     updates[uuid] = *update;

@@ -301,6 +301,7 @@ Try<Docker::Container> Docker::Container::create(const string& output)
 
   Result<JSON::String> idValue = json.find<JSON::String>("Id");
   if (idValue.isNone()) {
+    LOG(INFO) << output;
     return Error("Unable to find Id in container");
   } else if (idValue.isError()) {
     return Error("Error finding Id in container: " + idValue.error());

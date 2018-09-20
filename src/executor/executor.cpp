@@ -320,7 +320,8 @@ public:
       return;
     }
 
-    VLOG(1) << "Sending " << call.type() << " call to " << agent;
+    LOG(INFO) << "==========Sending " << call.type()
+              << " call to " << agent << "==========";
 
     ::Request request;
     request.method = "POST";

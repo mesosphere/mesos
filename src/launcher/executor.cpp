@@ -1135,6 +1135,9 @@ private:
 
   void forward(const TaskStatus& status)
   {
+    LOG(INFO) << "==========Forwarding " << status.state()
+              << " for " << status.task_id() << "==========";
+
     Call call;
     call.set_type(Call::UPDATE);
 
