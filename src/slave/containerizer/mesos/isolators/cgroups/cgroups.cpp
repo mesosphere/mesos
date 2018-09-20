@@ -669,6 +669,9 @@ Future<Nothing> CgroupsIsolatorProcess::isolate(
     const ContainerID& containerId,
     pid_t pid)
 {
+  LOG(INFO) << "==========CgroupsIsolatorProcess::isolate starts for "
+            << containerId << "==========";
+
   // If we are a nested container, we inherit
   // the cgroup from our root ancestor.
   ContainerID rootContainerId = protobuf::getRootContainerId(containerId);
@@ -724,13 +727,18 @@ Future<Nothing> CgroupsIsolatorProcess::isolate(
     .then(defer(
         PID<CgroupsIsolatorProcess>(this),
         &CgroupsIsolatorProcess::_isolate,
+        containerId,
         lambda::_1));
 }
 
 
 Future<Nothing> CgroupsIsolatorProcess::_isolate(
+    const ContainerID& containerId,
     const vector<Future<Nothing>>& futures)
 {
+  LOG(INFO) << "==========CgroupsIsolatorProcess::_isolate starts for "
+            << containerId << "==========";
+
   vector<string> errors;
   foreach (const Future<Nothing>& future, futures) {
     if (!future.isReady()) {
@@ -745,6 +753,9 @@ Future<Nothing> CgroupsIsolatorProcess::_isolate(
         "Failed to isolate subsystems: " +
         strings::join(";", errors));
   }
+
+  LOG(INFO) << "==========CgroupsIsolatorProcess::_isolate ends for "
+            << containerId << "==========";
 
   return Nothing();
 }

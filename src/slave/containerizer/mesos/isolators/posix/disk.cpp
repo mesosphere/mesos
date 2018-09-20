@@ -167,6 +167,9 @@ Future<Nothing> PosixDiskIsolatorProcess::isolate(
     const ContainerID& containerId,
     pid_t pid)
 {
+  LOG(INFO) << "==========PosixDiskIsolatorProcess::isolate starts for "
+            << containerId << "==========";
+
   if (containerId.has_parent()) {
     return Nothing();
   }
@@ -174,6 +177,9 @@ Future<Nothing> PosixDiskIsolatorProcess::isolate(
   if (!infos.contains(containerId)) {
     return Failure("Unknown container");
   }
+
+  LOG(INFO) << "==========PosixDiskIsolatorProcess::isolate ends for "
+            << containerId << "==========";
 
   return Nothing();
 }

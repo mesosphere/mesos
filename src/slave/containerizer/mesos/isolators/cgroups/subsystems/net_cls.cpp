@@ -366,6 +366,9 @@ Future<Nothing> NetClsSubsystemProcess::isolate(
     const string& cgroup,
     pid_t pid)
 {
+  LOG(INFO) << "==========NetClsSubsystemProcess::isolate starts for "
+            << containerId << "==========";
+
   if (!infos.contains(containerId)) {
     return Failure(
         "Failed to isolate subsystem '" + name() + "'"
@@ -388,6 +391,9 @@ Future<Nothing> NetClsSubsystemProcess::isolate(
           ": " + write.error());
     }
   }
+
+  LOG(INFO) << "==========NetClsSubsystemProcess::isolate ends for "
+            << containerId << "==========";
 
   return Nothing();
 }

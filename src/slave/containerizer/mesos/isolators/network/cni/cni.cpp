@@ -818,6 +818,9 @@ Future<Nothing> NetworkCniIsolatorProcess::isolate(
     const ContainerID& containerId,
     pid_t pid)
 {
+  LOG(INFO) << "==========NetworkCniIsolatorProcess::isolate starts for "
+            << containerId << "==========";
+
   // NOTE: We return 'Nothing()' here because some container might not
   // specify 'NetworkInfo.name' (i.e., wants to join the host network)
   // and has no image. In that case, we don't create an Info struct.
@@ -852,7 +855,7 @@ Future<Nothing> NetworkCniIsolatorProcess::isolate(
 
     setup.flags.etc_resolv_conf = "/etc/resolv.conf";
 
-    return __isolate(setup);
+    return __isolate(containerId, setup);
   }
 
   // If the control reaches here, we know that the container (both top
@@ -925,7 +928,7 @@ Future<Nothing> NetworkCniIsolatorProcess::isolate(
     // processes in the container should see host network files.
     setup.flags.bind_host_files = true;
 
-    return __isolate(setup);
+    return __isolate(containerId, setup);
   }
 
   // Create the container directory.
@@ -985,6 +988,9 @@ Future<Nothing> NetworkCniIsolatorProcess::_isolate(
     pid_t pid,
     const vector<Future<Nothing>>& attaches)
 {
+  LOG(INFO) << "==========NetworkCniIsolatorProcess::_isolate starts for "
+            << containerId << "===========";
+
   vector<string> messages;
   foreach (const Future<Nothing>& attach, attaches) {
     if (!attach.isReady()) {
@@ -1125,13 +1131,20 @@ Future<Nothing> NetworkCniIsolatorProcess::_isolate(
   // processes in the container should see host network files.
   setup.flags.bind_host_files = true;
 
-  return __isolate(setup);
+  LOG(INFO) << "==========NetworkCniIsolatorProcess::_isolate ends for "
+            << containerId << "==========";
+
+  return __isolate(containerId, setup);
 }
 
 
 Future<Nothing> NetworkCniIsolatorProcess::__isolate(
+    const ContainerID& containerId,
     const NetworkCniIsolatorSetup& setup)
 {
+  LOG(INFO) << "==========NetworkCniIsolatorProcess::__isolate starts for "
+            << containerId << "==========";
+
   vector<string> argv(2);
   argv[0] = "mesos-containerizer";
   argv[1] = NetworkCniIsolatorSetup::NAME;
@@ -1150,7 +1163,7 @@ Future<Nothing> NetworkCniIsolatorProcess::__isolate(
   }
 
   return await(s->status(), io::read(s->err().get()))
-    .then([](const tuple<
+    .then([containerId](const tuple<
         Future<Option<int>>,
         Future<string>>& t) -> Future<Nothing> {
       const Future<Option<int>>& status = std::get<0>(t);
@@ -1176,6 +1189,9 @@ Future<Nothing> NetworkCniIsolatorProcess::__isolate(
             "Failed to setup hostname and network files: " + err.get());
       }
 
+      LOG(INFO) << "==========NetworkCniIsolatorProcess::__isolate starts for "
+                << containerId << "==========";
+
       return Nothing();
     });
 }
@@ -1186,6 +1202,9 @@ Future<Nothing> NetworkCniIsolatorProcess::attach(
     const string& networkName,
     const string& netNsHandle)
 {
+  LOG(INFO) << "==========NetworkCniIsolatorProcess::attach starts for "
+            << containerId << "==========";
+
   CHECK(infos.contains(containerId));
   CHECK(infos[containerId]->containerNetworks.contains(networkName));
 
@@ -1341,6 +1360,9 @@ Future<Nothing> NetworkCniIsolatorProcess::_attach(
     const string& plugin,
     const tuple<Future<Option<int>>, Future<string>, Future<string>>& t)
 {
+  LOG(INFO) << "==========NetworkCniIsolatorProcess::_attach starts for "
+            << containerId << "==========";
+
   CHECK(infos.contains(containerId));
   CHECK(infos[containerId]->containerNetworks.contains(networkName));
 
@@ -1425,6 +1447,9 @@ Future<Nothing> NetworkCniIsolatorProcess::_attach(
   }
 
   containerNetwork.cniNetworkInfo = parse.get();
+
+  LOG(INFO) << "==========NetworkCniIsolatorProcess::_attach ends for "
+            << containerId << "==========";
 
   return Nothing();
 }

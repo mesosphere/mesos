@@ -149,6 +149,7 @@ private:
       const std::vector<process::Future<Nothing>>& attaches);
 
   process::Future<Nothing> __isolate(
+      const ContainerID& containerId,
       const NetworkCniIsolatorSetup& setup);
 
   Try<Nothing> _recover(
