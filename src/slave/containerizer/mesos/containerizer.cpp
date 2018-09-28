@@ -755,7 +755,7 @@ Future<Nothing> MesosContainerizerProcess::recover(
         }
 
         if (run->completed) {
-          VLOG(1) << "Skipping recovery of executor '" << executor.id
+          LOG(INFO) << "Skipping recovery of executor '" << executor.id
                   << "' of framework " << framework.id
                   << " because its latest run "
                   << containerId << " is completed";
@@ -831,7 +831,7 @@ Future<Nothing> MesosContainerizerProcess::recover(
     if (config.isSome()) {
       container->config = config.get();
     } else {
-      VLOG(1) << "No config is recovered for container " << containerId
+      LOG(INFO) << "No config is recovered for container " << containerId
               << ", this means image pruning will be disabled.";
     }
 
@@ -937,7 +937,7 @@ Future<Nothing> MesosContainerizerProcess::recover(
       container->config = ContainerConfig();
       container->config->CopyFrom(config.get());
     } else {
-      VLOG(1) << "No checkpointed config recovered for container "
+      LOG(INFO) << "No checkpointed config recovered for container "
               << containerId << ", this means image pruning will "
               << "be disabled.";
     }
@@ -1157,6 +1157,7 @@ Future<Containerizer::LaunchResult> MesosContainerizerProcess::launch(
     const map<string, string>& environment,
     const Option<std::string>& pidCheckpointPath)
 {
+  LOG(INFO) << "Mesos Containerizer starts to launch container " << containerId;
   if (containers_.contains(containerId)) {
     return Containerizer::LaunchResult::ALREADY_LAUNCHED;
   }
@@ -1417,7 +1418,7 @@ Future<Nothing> MesosContainerizerProcess::prepare(
                    configPath + "': " + configCheckpointed.error());
   }
 
-  VLOG(1) << "Checkpointed ContainerConfig at '" << configPath << "'";
+  LOG(INFO) << "Checkpointed ContainerConfig at '" << configPath << "'";
 
   transition(containerId, PREPARING);
 
@@ -1532,7 +1533,7 @@ Future<Containerizer::LaunchResult> MesosContainerizerProcess::_launch(
     // command is a valid command.
     if (isolatorLaunchInfo->has_command() &&
         launchInfo.has_command()) {
-      VLOG(1) << "Merging launch commands '" << launchInfo.command()
+      LOG(INFO) << "Merging launch commands '" << launchInfo.command()
               << "' and '" << isolatorLaunchInfo->command()
               << "' from two different isolators";
     }
@@ -1910,7 +1911,7 @@ Future<Containerizer::LaunchResult> MesosContainerizerProcess::_launch(
   launchFlags.runtime_directory = runtimePath;
 #endif // __WINDOWS__
 
-  VLOG(1) << "Launching '" << MESOS_CONTAINERIZER << "' with flags '"
+  LOG(INFO) << "Launching '" << MESOS_CONTAINERIZER << "' with flags '"
           << launchFlags << "'";
 
   Option<int> _enterNamespaces;
@@ -2488,7 +2489,7 @@ void MesosContainerizerProcess::_destroy(
   }
 
   if (previousState == PROVISIONING) {
-    VLOG(1) << "Waiting for the provisioner to complete provisioning "
+    LOG(INFO) << "Waiting for the provisioner to complete provisioning "
             << "before destroying container " << containerId;
 
     // Wait for the provisioner to finish provisioning before we
@@ -2505,7 +2506,7 @@ void MesosContainerizerProcess::_destroy(
   }
 
   if (previousState == PREPARING) {
-    VLOG(1) << "Waiting for the isolators to complete preparing "
+    LOG(INFO) << "Waiting for the isolators to complete preparing "
             << "before destroying container " << containerId;
 
     // We need to wait for the isolators to finish preparing to
@@ -2528,7 +2529,7 @@ void MesosContainerizerProcess::_destroy(
   }
 
   if (previousState == ISOLATING) {
-    VLOG(1) << "Waiting for the isolators to complete isolation "
+    LOG(INFO) << "Waiting for the isolators to complete isolation "
             << "before destroying container " << containerId;
 
     // Wait for the isolators to finish isolating before we start

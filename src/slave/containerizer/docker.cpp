@@ -432,6 +432,9 @@ Future<Nothing> DockerContainerizerProcess::fetch(
   CHECK(containers_.contains(containerId));
   Container* container = containers_.at(containerId);
 
+  LOG(INFO) << "Docker Containerizer starts to fetch for container "
+            << containerId;
+
   return fetcher->fetch(
       containerId,
       container->command,
@@ -453,6 +456,9 @@ Future<Nothing> DockerContainerizerProcess::pull(
 
   string image = container->image();
 
+  LOG(INFO) << "Docker Containerizer starts to pull image '"
+            << image << "' for container " << containerId;
+
   Future<Docker::Image> future = metrics.image_pull.time(docker->pull(
       container->containerWorkDir,
       image,
@@ -461,7 +467,7 @@ Future<Nothing> DockerContainerizerProcess::pull(
   containers_.at(containerId)->pull = future;
 
   return future.then(defer(self(), [=]() {
-    VLOG(1) << "Docker pull " << image << " completed";
+    LOG(INFO) << "Docker pull " << image << " completed";
     return Nothing();
   }));
 }
@@ -897,7 +903,7 @@ Future<hashset<ContainerID>> DockerContainerizer::containers()
 Future<Nothing> DockerContainerizer::pruneImages(
     const vector<Image>& excludedImages)
 {
-  VLOG(1) << "DockerContainerizer does not support pruneImages";
+  LOG(INFO) << "DockerContainerizer does not support pruneImages";
   return Nothing();
 }
 
@@ -993,7 +999,7 @@ Future<Nothing> DockerContainerizerProcess::_recover(
         }
 
         if (run->completed) {
-          VLOG(1) << "Skipping recovery of executor '" << executor.id
+          LOG(INFO) << "Skipping recovery of executor '" << executor.id
                   << "' of framework " << framework.id
                   << " because its latest run "
                   << containerId << " is completed";
@@ -1114,7 +1120,7 @@ Future<Nothing> DockerContainerizerProcess::__recover(
   vector<ContainerID> containerIds;
   vector<Future<Nothing>> futures;
   foreach (const Docker::Container& container, _containers) {
-    VLOG(1) << "Checking if Docker container named '"
+    LOG(INFO) << "Checking if Docker container named '"
             << container.name << "' was started by Mesos";
 
     Option<ContainerID> id = parse(container);
@@ -1124,7 +1130,7 @@ Future<Nothing> DockerContainerizerProcess::__recover(
       continue;
     }
 
-    VLOG(1) << "Checking if Mesos container with ID '"
+    LOG(INFO) << "Checking if Mesos container with ID '"
             << stringify(id.get()) << "' has been orphaned";
 
     // Check if we're watching an executor for this container ID and
@@ -1502,7 +1508,7 @@ Future<pid_t> DockerContainerizerProcess::launchExecutorProcess(
     const string& value = variable.value();
 
     if (environment.count(name)) {
-      VLOG(1) << "Overwriting environment variable '"
+      LOG(INFO) << "Overwriting environment variable '"
               << name << "', original: '"
               << environment[name] << "', new: '"
               << value << "', for container "
@@ -1612,7 +1618,7 @@ Future<pid_t> DockerContainerizerProcess::launchExecutorProcess(
         container->containerWorkDir,
         container->taskEnvironment);
 
-    VLOG(1) << "Launching 'mesos-docker-executor' with flags '"
+    LOG(INFO) << "Launching 'mesos-docker-executor' with flags '"
             << launchFlags << "'";
 
     // Construct the mesos-docker-executor using the "name" we gave the
@@ -1690,6 +1696,9 @@ Future<Nothing> DockerContainerizerProcess::update(
     const Resources& _resources,
     bool force)
 {
+  LOG(INFO) << "Docker Containerizer starts to update container "
+            << containerId;
+
   CHECK(!containerId.has_parent());
 
   if (!containers_.contains(containerId)) {
@@ -1980,6 +1989,9 @@ Future<Nothing> DockerContainerizerProcess::__update(
 Future<ResourceStatistics> DockerContainerizerProcess::usage(
     const ContainerID& containerId)
 {
+  LOG(INFO) << "Docker Containerizer starts to check usage for container "
+            << containerId;
+
   CHECK(!containerId.has_parent());
 
   if (!containers_.contains(containerId)) {
@@ -2035,6 +2047,9 @@ Future<ResourceStatistics> DockerContainerizerProcess::usage(
   if (container->pid.isSome()) {
     return collectUsage(container->pid.get());
   }
+
+  LOG(INFO) << "Docker Containerizer Usage() starts to call docker inspect for "
+            << "container " << containerId;
 
   return docker->inspect(container->containerName)
     .then(defer(
@@ -2244,7 +2259,7 @@ Future<Option<ContainerTermination>> DockerContainerizerProcess::destroy(
   Container* container = containers_.at(containerId);
 
   if (container->launch.isFailed()) {
-    VLOG(1) << "Container " << containerId << " launch failed";
+    LOG(INFO) << "Container " << containerId << " launch failed";
 
     // This means we failed to launch the container and we're trying to
     // cleanup.
@@ -2360,7 +2375,7 @@ Future<Option<ContainerTermination>> DockerContainerizerProcess::destroy(
     if (kill.isError()) {
       // Ignoring the error from killing executor as it can already
       // have exited.
-      VLOG(1) << "Ignoring error when killing executor pid "
+      LOG(INFO) << "Ignoring error when killing executor pid "
               << container->executorPid.get() << " in destroy, error: "
               << kill.error();
     }
@@ -2550,7 +2565,7 @@ Future<Nothing> DockerContainerizerProcess::destroyTimeout(
     if (kill.isError()) {
       // Ignoring the error from killing process as it can already
       // have exited.
-      VLOG(1) << "Ignoring error when killing process pid "
+      LOG(INFO) << "Ignoring error when killing process pid "
               << container->pid.get() << " in destroy, error: "
               << kill.error();
     }

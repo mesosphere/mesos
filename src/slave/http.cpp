@@ -1261,6 +1261,7 @@ Future<Response> Http::state(
     const Request& request,
     const Option<Principal>& principal) const
 {
+  LOG(INFO) << "slave/http.cpp is processing state() call";
   if (slave->state == Slave::RECOVERING) {
     return ServiceUnavailable("Agent has not finished recovery");
   }
@@ -1924,6 +1925,7 @@ Future<Response> Http::statistics(
     const Request& request,
     const Option<Principal>& principal) const
 {
+  LOG(INFO) << "slave/http.cpp is processing statistics";
   // TODO(nfnt): Remove check for enabled
   // authorization as part of MESOS-5346.
   if (request.method != "GET" && slave->authorizer.isSome()) {
@@ -2033,6 +2035,7 @@ Future<Response> Http::containers(
     const Request& request,
     const Option<Principal>& principal) const
 {
+  LOG(INFO) << "slave/http.cpp is processing Http::containers()";
   // TODO(a10gupta): Remove check for enabled
   // authorization as part of MESOS-5346.
   if (request.method != "GET" && slave->authorizer.isSome()) {
@@ -2149,6 +2152,7 @@ Future<JSON::Array> Http::__containers(
     bool showNestedContainers,
     bool showStandaloneContainers) const
 {
+  LOG(INFO) << "slave/http.cpp starts to call containerizer::containers()";
   return slave->containerizer->containers()
     .then(defer(slave->self(), [=](const hashset<ContainerID> containerIds) {
       Owned<vector<JSON::Object>> metadata(new vector<JSON::Object>());

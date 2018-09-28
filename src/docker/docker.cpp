@@ -161,7 +161,7 @@ Try<Owned<Docker>> Docker::create(
 void commandDiscarded(const Subprocess& s, const string& cmd)
 {
   if (s.status().isPending()) {
-    VLOG(1) << "'" << cmd << "' is being discarded";
+    LOG(INFO) << "'" << cmd << "' is being discarded";
     os::killtree(s.pid(), SIGKILL);
   }
 }
@@ -358,7 +358,7 @@ Try<Docker::Container> Docker::Container::create(const string& output)
   if (!networkMode.isSome()) {
     // We need to fallback to the old field as Docker added NetworkMode
     // since Docker remote API 1.15.
-    VLOG(1) << "Unable to detect HostConfig.NetworkMode, "
+    LOG(INFO) << "Unable to detect HostConfig.NetworkMode, "
             << "attempting deprecated IP field";
     findDeprecatedIP = true;
   } else {
@@ -376,7 +376,7 @@ Try<Docker::Container> Docker::Container::create(const string& output)
     if (!ipAddressValue.isSome()) {
       // We also need to fallback to the old field as the IP Address
       // field location also changed since Docker remote API 1.20.
-      VLOG(1) << "Unable to detect IP Address at '" << addressLocation << "',"
+      LOG(INFO) << "Unable to detect IP Address at '" << addressLocation << "',"
               << " attempting deprecated field";
       findDeprecatedIP = true;
     } else if (!ipAddressValue->value.empty()) {
@@ -720,7 +720,7 @@ Try<Docker::RunOptions> Docker::RunOptions::create(
       }
     } else if (volume.has_source()) {
       if (volume.source().type() != Volume::Source::DOCKER_VOLUME) {
-        VLOG(1) << "Ignored volume type '" << volume.source().type()
+        LOG(INFO) << "Ignored volume type '" << volume.source().type()
                 << "' for container '" << name << "' as only "
                 << "'DOCKER_VOLUME' was supported by docker";
         continue;
@@ -1159,7 +1159,7 @@ Future<Option<int>> Docker::run(
 
   string cmd = strings::join(" ", argv);
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
       path,
@@ -1207,7 +1207,7 @@ Future<Nothing> Docker::stop(
   string cmd = path + " -H " + socket + " stop -t " + stringify(timeoutSecs) +
                " " + containerName;
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
       cmd,
@@ -1265,7 +1265,7 @@ Future<Nothing> Docker::kill(
     path + " -H " + socket +
     " kill --signal=" + stringify(signal) + " " + containerName;
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
       cmd,
@@ -1293,7 +1293,7 @@ Future<Nothing> Docker::rm(
     path + " -H " + socket +
     (force ? " rm -f -v " : " rm -v ") + containerName;
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
       cmd,
@@ -1327,6 +1327,7 @@ Future<Docker::Container> Docker::inspect(
 
   return promise->future()
     .onDiscard([callback]() {
+      LOG(INFO) << "docker inspect .onDiscard is triggered";
       synchronized (callback->second) {
         callback->first();
       }
@@ -1344,7 +1345,7 @@ void Docker::_inspect(
     return;
   }
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
       cmd,
@@ -1412,7 +1413,7 @@ void Docker::__inspect(
     output.discard();
 
     if (retryInterval.isSome()) {
-      VLOG(1) << "Retrying inspect with non-zero status code. cmd: '"
+      LOG(INFO) << "Retrying inspect with non-zero status code. cmd: '"
               << cmd << "', interval: " << stringify(retryInterval.get());
       Clock::timer(retryInterval.get(),
                    [=]() { _inspect(cmd, promise, retryInterval, callback); });
@@ -1467,7 +1468,7 @@ void Docker::___inspect(
   }
 
   if (retryInterval.isSome() && !container->started) {
-    VLOG(1) << "Retrying inspect since container not yet started. cmd: '"
+    LOG(INFO) << "Retrying inspect since container not yet started. cmd: '"
             << cmd << "', interval: " << stringify(retryInterval.get());
     Clock::timer(retryInterval.get(),
                  [=]() { _inspect(cmd, promise, retryInterval, callback); } );
@@ -1484,7 +1485,7 @@ Future<vector<Docker::Container>> Docker::ps(
 {
   string cmd = path + " -H " + socket + (all ? " ps -a" : " ps");
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
       cmd,
@@ -1656,7 +1657,7 @@ Future<Docker::Image> Docker::pull(
 
   string cmd = strings::join(" ", argv);
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   Try<Subprocess> s = subprocess(
       path,
@@ -1734,7 +1735,7 @@ Future<Docker::Image> Docker::__pull(
 
   string cmd = strings::join(" ", argv);
 
-  VLOG(1) << "Running " << cmd;
+  LOG(INFO) << "Running " << cmd;
 
   // Set the HOME path where docker config file locates.
   Option<string> home;

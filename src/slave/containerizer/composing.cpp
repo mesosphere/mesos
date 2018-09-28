@@ -431,6 +431,7 @@ Future<Containerizer::LaunchResult> ComposingContainerizerProcess::launch(
     const map<string, string>& environment,
     const Option<std::string>& pidCheckpointPath)
 {
+  LOG(INFO) << "Composing containerizer is launching container " << containerId;
   if (containers_.contains(containerId)) {
     return Containerizer::LaunchResult::ALREADY_LAUNCHED;
   }

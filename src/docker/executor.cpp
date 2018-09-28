@@ -1022,7 +1022,7 @@ int main(int argc, char** argv)
     LOG(WARNING) << warning.message;
   }
 
-  VLOG(1) << stringify(flags);
+  LOG(INFO) << stringify(flags);
 
   if (flags.docker.isNone()) {
     EXIT(EXIT_FAILURE) << flags.usage("Missing required option --docker");
