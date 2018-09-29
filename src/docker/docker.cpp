@@ -162,7 +162,7 @@ void commandDiscarded(const Subprocess& s, const string& cmd)
 {
   if (s.status().isPending()) {
     LOG(INFO) << "'" << cmd << "' is being discarded";
-    os::killtree(s.pid(), SIGKILL);
+    os::kill(s.pid(), SIGKILL);
   }
 }
 
