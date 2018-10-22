@@ -15,10 +15,14 @@
 // limitations under the License.
 
 #include <mesos/executor.hpp>
+#include <mesos/http.hpp>
 #include <mesos/scheduler.hpp>
+
+#include <mesos/v1/master/master.hpp>
 
 #include <process/collect.hpp>
 #include <process/future.hpp>
+#include <process/http.hpp>
 #include <process/owned.hpp>
 #include <process/pid.hpp>
 
@@ -65,6 +69,7 @@ using mesos::master::detector::MasterDetector;
 using mesos::slave::ContainerLogger;
 using mesos::slave::ContainerTermination;
 
+using process::Failure;
 using process::Future;
 using process::Owned;
 using process::PID;
@@ -398,7 +403,8 @@ TEST_F(HealthCheckTest, HealthyTask)
   EXPECT_TRUE(implicitReconciliation->has_healthy());
   EXPECT_TRUE(implicitReconciliation->healthy());
 
-  // Verify that task health is exposed in the master's state endpoint.
+  // Verify that task's health check definition and current health status
+  // are exposed in the master's state endpoint.
   {
     Future<http::Response> response = http::get(
         master.get()->pid,
@@ -414,9 +420,18 @@ TEST_F(HealthCheckTest, HealthyTask)
     Result<JSON::Value> find = parse->find<JSON::Value>(
         "frameworks[0].tasks[0].statuses[1].healthy");
     EXPECT_SOME_TRUE(find);
+
+    find = parse->find<JSON::Value>(
+        "frameworks[0].tasks[0].health_check.type");
+    EXPECT_SOME_EQ("COMMAND", find);
+
+    find = parse->find<JSON::Value>(
+        "frameworks[0].tasks[0].health_check.command.value");
+    EXPECT_SOME_EQ("exit 0", find);
   }
 
-  // Verify that task health is exposed in the agent's state endpoint.
+  // Verify that the task's health definition and current health status
+  // are exposed in the agent's state endpoint.
   {
     Future<http::Response> response = http::get(
         agent.get()->pid,
@@ -432,6 +447,54 @@ TEST_F(HealthCheckTest, HealthyTask)
     Result<JSON::Value> find = parse->find<JSON::Value>(
         "frameworks[0].executors[0].tasks[0].statuses[1].healthy");
     EXPECT_SOME_TRUE(find);
+
+    find = parse->find<JSON::Value>(
+        "frameworks[0].executors[0].tasks[0].health_check.type");
+    EXPECT_SOME_EQ("COMMAND", find);
+
+    find = parse->find<JSON::Value>(
+        "frameworks[0].executors[0].tasks[0].health_check.command.value");
+    EXPECT_SOME_EQ("exit 0", find);
+  }
+
+  // Verify that the task's health definition and current health status are
+  // exposed in the master's GET_STATE response. Since the master's GET_TASKS
+  // response is generated with the same code that is exercised here, we do not
+  // test that call separately.
+  {
+    v1::master::Call v1Call;
+    v1Call.set_type(v1::master::Call::GET_STATE);
+
+    const ContentType contentType = ContentType::JSON;
+
+    Future<v1::master::Response> v1Response = http::post(
+        master.get()->pid,
+        "api/v1",
+        createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+        serialize(contentType, v1Call),
+        stringify(contentType))
+      .then([contentType](const http::Response& response)
+          -> Future<v1::master::Response> {
+        if (response.status != http::OK().status) {
+          return Failure("Unexpected response status " + response.status);
+        }
+        return deserialize<v1::master::Response>(contentType, response.body);
+      });
+
+    AWAIT_READY(v1Response);
+    ASSERT_TRUE(v1Response->IsInitialized());
+    ASSERT_EQ(v1::master::Response::GET_STATE, v1Response->type());
+
+    const v1::master::Response::GetState& getState = v1Response->get_state();
+
+    ASSERT_EQ(1, getState.get_tasks().tasks_size());
+    ASSERT_TRUE(getState.get_tasks().tasks(0).has_health_check());
+    ASSERT_EQ(
+        v1::HealthCheck::COMMAND,
+        getState.get_tasks().tasks(0).health_check().type());
+    ASSERT_EQ(
+        "exit 0",
+        getState.get_tasks().tasks(0).health_check().command().value());
   }
 
   driver.stop();

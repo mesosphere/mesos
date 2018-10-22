@@ -2316,6 +2316,20 @@ TEST_P(MasterAPITest, Subscribe)
 
   TaskInfo task = createTask(devolve(offer), "", executorId);
 
+  const string healthCommandValue = "exit 0";
+  CommandInfo healthCommand;
+  healthCommand.set_value(healthCommandValue);
+
+  HealthCheck healthCheck;
+
+  healthCheck.set_type(HealthCheck::COMMAND);
+  healthCheck.mutable_command()->CopyFrom(healthCommand);
+  healthCheck.set_delay_seconds(0);
+  healthCheck.set_interval_seconds(1);
+  healthCheck.set_grace_period_seconds(0);
+
+  task.mutable_health_check()->CopyFrom(healthCheck);
+
   Future<Nothing> update;
   EXPECT_CALL(*scheduler, update(_, _))
     .WillOnce(FutureSatisfy(&update));
@@ -2354,6 +2368,13 @@ TEST_P(MasterAPITest, Subscribe)
   ASSERT_EQ(v1::master::Event::TASK_ADDED, event->get().type());
   ASSERT_EQ(evolve(task.task_id()),
             event->get().task_added().task().task_id());
+  ASSERT_TRUE(event->get().task_added().task().has_health_check());
+  ASSERT_EQ(
+      v1::HealthCheck::COMMAND,
+      event->get().task_added().task().health_check().type());
+  ASSERT_EQ(
+      healthCommandValue,
+      event->get().task_added().task().health_check().command().value());
 
   event = decoder.read();
 
