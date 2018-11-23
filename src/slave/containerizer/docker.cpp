@@ -1152,6 +1152,18 @@ Future<Containerizer::LaunchResult> DockerContainerizerProcess::launch(
     return Containerizer::LaunchResult::NOT_SUPPORTED;
   }
 
+  // TODO(gilbert): This is a patch for DC/OS, in order to work
+  // around the sandbox permission change in Mesos 1.6.0, which
+  // is not backward compatible in DC/OS. Please see MESOS-8332
+  // and DCOS_OSS-4415 for details. Remove this workaround after
+  // a deprecation cycle in DC/OS 1.15.
+  Try<Nothing> chmod = os::chmod(containerConfig.directory(), 0755);
+  if (chmod.isError()) {
+    return Failure(
+        "Failed to chmod directory '" + containerConfig.directory() +
+        "': " + chmod.error());
+  }
+
   Try<Container*> container = Container::create(
       containerId,
       containerConfig,
