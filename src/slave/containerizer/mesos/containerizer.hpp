@@ -142,7 +142,8 @@ public:
       IOSwitchboard* _ioSwitchboard,
       const process::Owned<Launcher>& _launcher,
       const process::Shared<Provisioner>& _provisioner,
-      const std::vector<process::Owned<mesos::slave::Isolator>>& _isolators)
+      const std::vector<process::Owned<mesos::slave::Isolator>>& _isolators,
+      const Option<int_fd>& _initMemFd)
     : ProcessBase(process::ID::generate("mesos-containerizer")),
       flags(_flags),
       fetcher(_fetcher),
@@ -150,7 +151,8 @@ public:
       ioSwitchboard(_ioSwitchboard),
       launcher(_launcher),
       provisioner(_provisioner),
-      isolators(_isolators) {}
+      isolators(_isolators),
+      initMemFd(_initMemFd) {}
 
   ~MesosContainerizerProcess() override {}
 
@@ -317,6 +319,7 @@ private:
   const process::Owned<Launcher> launcher;
   const process::Shared<Provisioner> provisioner;
   const std::vector<process::Owned<mesos::slave::Isolator>> isolators;
+  const Option<int_fd> initMemFd;
 
   struct Container
   {
