@@ -130,7 +130,19 @@ static void handleWhitelistFds(const std::vector<int_fd>& whitelist_fds)
         }
 
         if (!found) {
-          ::close(fd);
+          int flags = ::fcntl(fd, F_GETFD);
+          if (flags == -1) {
+            ABORT(
+                "Failed to get file descriptor flags: " + os::strerror(errno));
+          }
+
+          // Close the FD which does not have the FD_CLOEXEC bit.
+          // We need to avoid whitelisting those FDs that have to survive
+          // until exec while we do not want to expose these FDs to user
+          // applications.
+          if ((flags & FD_CLOEXEC) == 0){
+            ::close(fd);
+          }
         }
       }
     }
