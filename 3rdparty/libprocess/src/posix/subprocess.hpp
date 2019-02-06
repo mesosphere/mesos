@@ -131,7 +131,12 @@ static void handleWhitelistFds(const std::vector<int_fd>& whitelist_fds)
           }
         }
 
-        if (!found) {
+        Try<bool> isCloexec = os::isCloexec(fd);
+        if (isCloexec.isError()) {
+          ABORT("Failed to get FD flags: " + isCloexec.error());
+        }
+
+        if (!found && !isCloexec.get()) {
           ::close(fd);
         }
       }
