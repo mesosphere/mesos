@@ -878,6 +878,48 @@ Future<Nothing> LinuxFilesystemIsolatorProcess::update(
     // changes about the volume's ownership since it has the full permissions
     // to access the volume.
     if (uid != 0) {
+      bool isVolumeInUse = false;
+
+      // Check if the shared persistent volume is currently used by another
+      // container. We do not need to do this check for local persistent
+      // volume since it can only be used by one container at a time.
+      if (resource.has_shared()) {
+        foreachpair (const ContainerID& _containerId,
+                     const Owned<Info>& info,
+                     infos) {
+          // Skip self.
+          if (_containerId == containerId) {
+            continue;
+          }
+
+          if (info->resources.contains(resource)) {
+            isVolumeInUse = true;
+            break;
+          }
+        }
+      }
+
+      // Set the ownership of the persistent volume to match that of the
+      // sandbox directory if the volume is not already in use. If the
+      // volume is currently in use by other containers, tasks in this
+      // container may fail to read from or write to the persistent volume
+      // due to incompatible ownership and file system permissions.
+      if (!isVolumeInUse) {
+        LOG(INFO) << "Changing the ownership of the persistent volume at '"
+                  << source << "' with uid " << uid << " and gid " << gid;
+
+        Try<Nothing> chown = os::chown(uid, gid, source, false);
+        if (chown.isError()) {
+          return Failure(
+              "Failed to change the ownership of the persistent volume at '" +
+              source + "' with uid " + stringify(uid) +
+              " and gid " + stringify(gid) + ": " + chown.error());
+        }
+      } else {
+        LOG(INFO) << "Leaving the ownership of the persistent volume at '"
+                  << source << "' unchanged because it is in use";
+      }
+
       // For persistent volumes not from resource providers, if volume gid
       // manager is enabled, call volume gid manager to allocate a gid to
       // make sure the container has the permission to access the volume.
@@ -892,48 +934,6 @@ Future<Nothing> LinuxFilesystemIsolatorProcess::update(
 
         futures.push_back(
             volumeGidManager->allocate(source, VolumeGidInfo::PERSISTENT));
-      } else {
-        bool isVolumeInUse = false;
-
-        // Check if the shared persistent volume is currently used by another
-        // container. We do not need to do this check for local persistent
-        // volume since it can only be used by one container at a time.
-        if (resource.has_shared()) {
-          foreachpair (const ContainerID& _containerId,
-                       const Owned<Info>& info,
-                       infos) {
-            // Skip self.
-            if (_containerId == containerId) {
-              continue;
-            }
-
-            if (info->resources.contains(resource)) {
-              isVolumeInUse = true;
-              break;
-            }
-          }
-        }
-
-        // Set the ownership of the persistent volume to match that of the
-        // sandbox directory if the volume is not already in use. If the
-        // volume is currently in use by other containers, tasks in this
-        // container may fail to read from or write to the persistent volume
-        // due to incompatible ownership and file system permissions.
-        if (!isVolumeInUse) {
-          LOG(INFO) << "Changing the ownership of the persistent volume at '"
-                    << source << "' with uid " << uid << " and gid " << gid;
-
-          Try<Nothing> chown = os::chown(uid, gid, source, false);
-          if (chown.isError()) {
-            return Failure(
-                "Failed to change the ownership of the persistent volume at '" +
-                source + "' with uid " + stringify(uid) +
-                " and gid " + stringify(gid) + ": " + chown.error());
-          }
-        } else {
-          LOG(INFO) << "Leaving the ownership of the persistent volume at '"
-                    << source << "' unchanged because it is in use";
-        }
       }
     }
 
