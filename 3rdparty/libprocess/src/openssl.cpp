@@ -723,11 +723,16 @@ SSL_CTX* context()
 
 Try<Nothing> verify(
     const SSL* const ssl,
+    Mode mode,
     const Option<string>& hostname,
     const Option<net::IP>& ip)
 {
   // Return early if we don't need to verify.
-  if (!ssl_flags->verify_cert) {
+  if (mode == Mode::CLIENT && !ssl_flags->verify_cert) {
+    return Nothing();
+  }
+
+  if (mode == Mode::SERVER && !ssl_flags->require_cert) {
     return Nothing();
   }
 
@@ -735,10 +740,11 @@ Try<Nothing> verify(
   // TODO(jmlvanre): handle this better. How about RAII?
   X509* cert = SSL_get_peer_certificate(ssl);
 
+  // NOTE: Even without this check, OpenSSL will not connect to remote
+  // servers that do not present a certificate, unless an anonymous cipher
+  // is used.
   if (cert == nullptr) {
-    return ssl_flags->require_cert
-      ? Error("Peer did not provide certificate")
-      : Try<Nothing>(Nothing());
+    return Error("Peer did not provide certificate");
   }
 
   if (SSL_get_verify_result(ssl) != X509_V_OK) {
