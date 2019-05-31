@@ -129,6 +129,13 @@ static const vector<string> protocols = {
 #endif
 };
 
+static const vector<string> hostname_validation_schemes = {
+  "legacy",
+#if OPENSSL_VERSION_NUMBER >= 0x10002000L
+  "openssl",
+#endif
+};
+
 
 // Ensure that we can't create an SSL socket when SSL is not enabled.
 TEST(SSL, Disabled)
@@ -193,26 +200,37 @@ TEST_F(SSLTest, NonSSLSocket)
 }
 
 
+class SSLTestStringParameter
+  : public SSLTest,
+    public ::testing::WithParamInterface<std::string> {};
+
+
+INSTANTIATE_TEST_CASE_P(HostnameValidationScheme,
+                        SSLTestStringParameter,
+                        ::testing::ValuesIn(hostname_validation_schemes));
+
+
 // Ensure that a certificate that was not generated using the
 // certificate authority is still allowed to communicate as long as
 // the LIBPROCESS_SSL_VERIFY_CERT and LIBPROCESS_SSL_REQUIRE_CERT
 // flags are disabled.
-TEST_F(SSLTest, NoVerifyBadCA)
+TEST_P(SSLTestStringParameter, NoVerifyBadCA)
 {
   Try<Socket> server = setup_server({
       {"LIBPROCESS_SSL_ENABLED", "true"},
       {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
       {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
-      {"LIBPROCESS_SSL_VERIFY_CERT", "false"},
-      {"LIBPROCESS_SSL_REQUIRE_CERT", "false"}});
+      {"LIBPROCESS_SSL_REQUIRE_CERT", "false"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", GetParam()}});
   ASSERT_SOME(server);
 
   Try<Subprocess> client = launch_client({
       {"LIBPROCESS_SSL_ENABLED", "true"},
       {"LIBPROCESS_SSL_KEY_FILE", scrap_key_path().string()},
       {"LIBPROCESS_SSL_CERT_FILE", scrap_certificate_path().string()},
-      {"LIBPROCESS_SSL_REQUIRE_CERT", "true"},
-      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()}},
+      {"LIBPROCESS_SSL_VERIFY_CERT", "false"},
+      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", GetParam()}},
       server.get(),
       true);
   ASSERT_SOME(client);
@@ -228,23 +246,28 @@ TEST_F(SSLTest, NoVerifyBadCA)
 }
 
 
-// Ensure that a certificate that was not generated using the
+// Ensure that a client certificate that was not generated using the
 // certificate authority is NOT allowed to communicate when the
 // LIBPROCESS_SSL_REQUIRE_CERT flag is enabled.
+//
+// NOTE: We cannot run this test with the 'legacy' hostname
+// validation scheme due to MESOS-9867.
 TEST_F(SSLTest, RequireBadCA)
 {
   Try<Socket> server = setup_server({
       {"LIBPROCESS_SSL_ENABLED", "true"},
       {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
       {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
-      {"LIBPROCESS_SSL_REQUIRE_CERT", "true"}});
+      {"LIBPROCESS_SSL_REQUIRE_CERT", "true"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", "openssl"}});
   ASSERT_SOME(server);
 
   Try<Subprocess> client = launch_client({
       {"LIBPROCESS_SSL_ENABLED", "true"},
       {"LIBPROCESS_SSL_KEY_FILE", scrap_key_path().string()},
       {"LIBPROCESS_SSL_CERT_FILE", scrap_certificate_path().string()},
-      {"LIBPROCESS_SSL_REQUIRE_CERT", "false"}},
+      {"LIBPROCESS_SSL_VERIFY_CERT", "false"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", "openssl"}},
       server.get(),
       true);
   ASSERT_SOME(client);
@@ -256,24 +279,118 @@ TEST_F(SSLTest, RequireBadCA)
 }
 
 
-// Ensure that a certificate that was not generated using the
+// Ensure that a server certificate that was not generated using the
 // certificate authority is NOT allowed to communicate when the
 // LIBPROCESS_SSL_VERIFY_CERT flag is enabled.
-TEST_F(SSLTest, VerifyBadCA)
+TEST_P(SSLTestStringParameter, VerifyBadCA)
+{
+  Try<Socket> server = setup_server({
+      {"LIBPROCESS_SSL_ENABLED", "true"},
+      {"LIBPROCESS_SSL_KEY_FILE", scrap_key_path().string()},
+      {"LIBPROCESS_SSL_CERT_FILE", scrap_certificate_path().string()},
+      {"LIBPROCESS_SSL_REQUIRE_CERT", "false"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", GetParam()}});
+  ASSERT_SOME(server);
+
+  Try<std::string> hostname = net::getHostname(process::address().ip);
+  ASSERT_SOME(hostname);
+
+  Try<Address> address = server->address();
+  ASSERT_SOME(address);
+
+  Try<Subprocess> client = launch_client({
+      {"LIBPROCESS_SSL_ENABLED", "true"},
+      {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
+      {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_VERIFY_CERT", "true"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", GetParam()}},
+      *hostname,
+      address->ip,
+      address->port,
+      true);
+  ASSERT_SOME(client);
+
+  Future<Socket> socket = server->accept();
+  AWAIT_ASSERT_FAILED(socket);
+
+  AWAIT_ASSERT_READY(await_subprocess(client.get(), None()));
+}
+
+
+// Ensure that a certificate that WAS generated using the certificate
+// authority IS allowed to communicate when the
+// LIBPROCESS_SSL_VERIFY_CERT and LIBPROCESS_SSL_REQUIRE_CERT flags are
+// enabled.
+//
+// NOTE: If this test is failing for the 'legacy' scheme, subsequent
+// tests may be affected due to MESOS-9867.
+TEST_P(SSLTestStringParameter, VerifyCertificate)
 {
   Try<Socket> server = setup_server({
       {"LIBPROCESS_SSL_ENABLED", "true"},
       {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
       {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
-      {"LIBPROCESS_SSL_REQUIRE_CERT", "true"}});
+      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_REQUIRE_CERT", "true"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", GetParam()}});
   ASSERT_SOME(server);
+
+  Try<std::string> hostname = net::getHostname(process::address().ip);
+  ASSERT_SOME(hostname);
+
+  Try<Address> address = server->address();
+  ASSERT_SOME(address);
 
   Try<Subprocess> client = launch_client({
       {"LIBPROCESS_SSL_ENABLED", "true"},
-      {"LIBPROCESS_SSL_KEY_FILE", scrap_key_path().string()},
-      {"LIBPROCESS_SSL_CERT_FILE", scrap_certificate_path().string()},
-      {"LIBPROCESS_SSL_VERIFY_CERT", "false"}},
-      server.get(),
+      {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
+      {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_VERIFY_CERT", "true"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", GetParam()}},
+      *hostname,
+      address->ip,
+      address->port,
+      true);
+  ASSERT_SOME(client);
+
+  Future<Socket> socket = server->accept();
+  AWAIT_ASSERT_READY(socket);
+
+  // TODO(jmlvanre): Remove const copy.
+  AWAIT_ASSERT_EQ(data, Socket(socket.get()).recv());
+  AWAIT_ASSERT_READY(Socket(socket.get()).send(data));
+
+  AWAIT_ASSERT_READY(await_subprocess(client.get(), 0));
+}
+
+
+// Ensure that a server presenting a valid certificate with a not matching
+// hostname is NOT allowed to communicate when the
+// LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME flag is set to 'openssl'.
+TEST_F(SSLTest, HostnameMismatch)
+{
+  Try<Socket> server = setup_server({
+      {"LIBPROCESS_SSL_ENABLED", "true"},
+      {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
+      {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", "openssl"}});
+  ASSERT_SOME(server);
+
+  Try<Address> address = server->address();
+  ASSERT_SOME(address);
+
+  Try<Subprocess> client = launch_client({
+      {"LIBPROCESS_SSL_ENABLED", "true"},
+      {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
+      {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()},
+      {"LIBPROCESS_SSL_VERIFY_CERT", "true"},
+      {"LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", "openssl"}},
+      "invalid.example.org",
+      address->ip,
+      address->port,
       true);
   ASSERT_SOME(client);
 
@@ -312,40 +429,6 @@ TEST_F(SSLTest, NoAnonymousCipherIfVerify)
   AWAIT_ASSERT_FAILED(socket);
 
   AWAIT_ASSERT_READY(await_subprocess(client.get(), None()));
-}
-
-
-// Ensure that a certificate that WAS generated using the certificate
-// authority IS allowed to communicate when the
-// LIBPROCESS_SSL_VERIFY_CERT flag is enabled.
-TEST_F(SSLTest, VerifyCertificate)
-{
-  Try<Socket> server = setup_server({
-      {"LIBPROCESS_SSL_ENABLED", "true"},
-      {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
-      {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
-      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()},
-      {"LIBPROCESS_SSL_VERIFY_CERT", "true"}});
-  ASSERT_SOME(server);
-
-  Try<Subprocess> client = launch_client({
-      {"LIBPROCESS_SSL_ENABLED", "true"},
-      {"LIBPROCESS_SSL_KEY_FILE", key_path().string()},
-      {"LIBPROCESS_SSL_CERT_FILE", certificate_path().string()},
-      {"LIBPROCESS_SSL_CA_FILE", certificate_path().string()},
-      {"LIBPROCESS_SSL_REQUIRE_CERT", "true"}},
-      server.get(),
-      true);
-  ASSERT_SOME(client);
-
-  Future<Socket> socket = server->accept();
-  AWAIT_ASSERT_READY(socket);
-
-  // TODO(jmlvanre): Remove const copy.
-  AWAIT_ASSERT_EQ(data, Socket(socket.get()).recv());
-  AWAIT_ASSERT_READY(Socket(socket.get()).send(data));
-
-  AWAIT_ASSERT_READY(await_subprocess(client.get(), 0));
 }
 
 
@@ -777,6 +860,7 @@ TEST_P(SSLVerifyIPAddTest, BasicSameProcess)
   os::setenv("LIBPROCESS_SSL_CA_DIR", os::getcwd());
   os::setenv("LIBPROCESS_SSL_CA_FILE", certificate_path().string());
   os::setenv("LIBPROCESS_SSL_VERIFY_IPADD", GetParam());
+  os::setenv("LIBPROCESS_SSL_HOSTNAME_VALIDATION_SCHEME", "legacy");
 
   openssl::reinitialize();
 
