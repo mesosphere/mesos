@@ -9,7 +9,7 @@ By default, all the messages that flow through the Mesos cluster are unencrypted
 
 SSL/TLS support was added to libprocess in Mesos 0.23.0, which encypts the low-level communication that Mesos uses for network communication between Mesos components.  Additionally, HTTPS support was added to the Mesos WebUI.
 
-# Configuration
+# Build Configuration
 There is currently only one implementation of the [libprocess socket interface](https://github.com/apache/mesos/blob/master/3rdparty/libprocess/include/process/socket.hpp) that supports SSL. This implementation uses [libevent](https://github.com/libevent/libevent). Specifically it relies on the `libevent-openssl` library that wraps `openssl`.
 
 Before building Mesos 0.23.0 from source, assuming you have installed the required [Dependencies](#Dependencies), you can modify your configure line to enable SSL as follows:
@@ -18,7 +18,43 @@ Before building Mesos 0.23.0 from source, assuming you have installed the requir
 ../configure --enable-libevent --enable-ssl
 ~~~
 
-# Running
+
+# Runtime Configuration
+
+SSL support in Mesos can be configured with different levels of security. This section aims to help
+Mesos operators to better understand the trade-offs involved in them.
+
+On a high level, the various settings can be imagined to be divided into three security levels, where
+each level includes the flags of the previous level.
+
+1) `LIBPROCESS_SSL_ENABLED=true`. This provides external clients (e.g. curl) to connect to Mesos HTTP endpoints
+    securely via TLS, verifying that the server certificate is valid and trusted.
+
+2) `LIBPROCESS_SSL_VERIFY_CERT=true`. In addition to the above, this ensure that Mesos components themselves are verifying
+   the presence of valid and trusted server certificates when making outgoing connections. This prevents man-in-the-middle
+   attacks on communications between Mesos components, and on communications between a Mesos component and an external server.
+
+   NOTE: This setting only makes sense if `LIBPROCESS_SSL_ENABLE_DOWNGRADE` is set to `false`, otherwise a malicious actor can
+   simply bypass certificate verification by downgrading to a non-TLS connection.
+
+3) `LIBPROCESS_SSL_REQUIRE_CERT=true`. In addition to the above, this enforces the use of TLS client certificates on all connections
+   to any Mesos component. This ensures that only trusted clients can connect to any Mesos component, preventing reception of
+   forged or malformed messages.
+
+   However, this imposes some operational overhead, as all Schedulers or other clients (including the web browsers used by human operators)
+   that are supposed to connect to any endpoint of a Mesos component must be provided with valid client certificates.
+
+   Also, this again only makes sense if TLS downgrades are disabled.
+
+
+For secure usage, it is recommended to use the `LIBPROCESS_SSL_VERIFY_CERT=true` setting, as it provides a good trade-off between
+security and usability.
+
+It is not recommended in general to connect Mesos to the public internet, but in cases where it is connected anyways
+the use of `LIBPROCESS_SSL_REQUIRE_CERT` is recommended.
+
+
+# Environment Variables
 Once you have successfully built and installed your new binaries, here are the environment variables that are applicable to the `Master`, `Agent`, `Framework Scheduler/Executor`, or any `libprocess process`:
 
 **NOTE:** Prior to 1.0, the SSL related environment variables used to be prefixed by `SSL_`. However, we found that they may collide with other programs and lead to unexpected results (e.g., openssl, see [MESOS-5863](https://issues.apache.org/jira/browse/MESOS-5863) for details). To be backward compatible, we accept environment variables prefixed by both `SSL_` or `LIBPROCESS_SSL_`. New users should use the `LIBPROCESS_SSL_` version.
@@ -41,8 +77,9 @@ openssl genrsa -des3 -f4 -passout pass:some_password -out key.pem 4096
 The location of the certificate that will be presented.
 
 ~~~
-// For example, to generate a certificate with OpenSSL:
-openssl req -new -x509 -passin pass:some_password -days 365 -key key.pem -out cert.pem
+// For example, to generate a root certificate with OpenSSL:
+// (assuming the signing key already exists in `key.pem`)
+openssl req -new -x509 -passin pass:some_password -days 365 -keyout key.pem -out cert.pem
 ~~~
 
 #### LIBPROCESS_SSL_VERIFY_CERT=(false|0,true|1) [default=false|0]
