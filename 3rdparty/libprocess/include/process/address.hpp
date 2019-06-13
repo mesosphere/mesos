@@ -55,13 +55,19 @@ public:
     : ip(_ip), port(_port) {}
 
   /**
-   * Returns the hostname of this address's IP.
+   * Returns the hostname of this address's IP,
+   * using a reverse DNS lookup for remote addresses
+   * or the local hostname for a local address.
    *
    * @returns the hostname of this address's IP.
    */
   // TODO(jmlvanre): Consider making this return a Future in order to
   // deal with slow name resolution.
-  Try<std::string> hostname() const
+  //
+  // TODO(bevers): A given IP can have multiple associated PTR records,
+  // (e.g. a shared web server hosting multiple domains), so the return
+  // value should probably be a list of strings.
+  Try<std::string> lookup_hostname() const
   {
     const Try<std::string> hostname = ip.isAny()
       ? net::hostname()
@@ -132,6 +138,21 @@ public:
   // either the `ip` or `port` field are currently used.
   net::IP ip;
   uint16_t port;
+
+  // The hostname to be used for TLS hostname validation.
+  // For non-TLS connections, this is ignored and can be left empty.
+  //
+  // If `peer_hostname` is empty and certificate verification is enabled,
+  // the server certificate must include the specified IP address in its
+  // list of subject alternate names, otherwise the connection attempt will
+  // fail.
+  //
+  // NOTE: This can also be set manually by the user to override the result
+  // of DNS resolution, similar to `curl --resolve`.
+  //
+  // TODO(bevers): Figure out if hostname validation over unix sockets makes
+  // sense, and if so move this into the general `Address` class.
+  Option<std::string> peer_hostname;
 };
 
 

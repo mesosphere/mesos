@@ -1479,6 +1479,7 @@ Future<Connection> connect(const URL& url)
     }
 
     address.ip = ip.get();
+    address.peer_hostname = url.domain.get();
   }
 
   if (url.port.isNone()) {

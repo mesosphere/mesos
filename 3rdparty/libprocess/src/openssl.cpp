@@ -32,6 +32,8 @@
 
 #include <stout/os.hpp>
 #include <stout/strings.hpp>
+#include <stout/stopwatch.hpp>
+#include <stout/try.hpp>
 
 #ifdef __WINDOWS__
 // OpenSSL on Windows requires this adapter module to be compiled as part of the
@@ -135,6 +137,18 @@ Flags::Flags()
       "NOTE: Old versions of OpenSSL support only one curve, check "
       "the documentation of your OpenSSL.",
       "auto");
+
+  add(&Flags::hostname_validation_algorithm,
+      "hostname_validation_algorithm",
+      "Select the algorithm used to perform hostname validation when"
+      " verifying certificates.\n"
+      "Possible values: 'libprocess', 'openssl'\n"
+      "See `docs/ssl.md` for details on the individual algorithms.\n"
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+      "NOTE: The currently linked version of OpenSSL is too old to support"
+      " the 'openssl' algorithm.\n"
+#endif
+      , "libprocess");
 
   // We purposely don't have a flag for SSLv2. We do this because most
   // systems have disabled SSLv2 at compilation due to having so many
@@ -542,6 +556,21 @@ void reinitialize()
               << "LIBPROCESS_SSL_VERIFY_CERT set to true";
   }
 
+  if (ssl_flags->hostname_validation_algorithm != "libprocess" &&
+      ssl_flags->hostname_validation_algorithm != "openssl") {
+    LOG(FATAL) << "Unknown value for hostname_validation_algorithm: "
+               << ssl_flags->hostname_validation_algorithm;
+  }
+
+  if (ssl_flags->hostname_validation_algorithm == "openssl" &&
+      OPENSSL_VERSION_NUMBER < 0x10100000L) {
+    LOG(FATAL) << "OpenSSL built-in hostname validation requires at least"
+               << " OpenSSL 1.1.0";
+  }
+
+  LOG(INFO) << "Using '" << ssl_flags->hostname_validation_algorithm
+            << "' algorithm for hostname validation";
+
   // Initialize OpenSSL if we've been asked to do verification of peer
   // certificates.
   if (ssl_flags->verify_cert) {
@@ -753,7 +782,42 @@ Try<Nothing> verify(
     return Error("Could not verify peer certificate");
   }
 
-  if (!ssl_flags->verify_ipadd && hostname.isNone()) {
+  // If we are using the OpenSSL built-in algorithm, hostname
+  // validation was already performed during the TLS handshake
+  // so we don't have to do it again here.
+  if (ssl_flags->hostname_validation_algorithm == "openssl") {
+    return Try<Nothing>(Nothing());
+  }
+
+  // For backwards compatibility, the 'libprocess' algorithm will attempt to get
+  // the peer hostname using a reverse DNS lookup if connecting via IP address.
+  Option<std::string> peer_hostname = hostname;
+  if (!hostname.isSome() && ip.isSome()) {
+    VLOG(1) << "Doing rDNS lookup for 'libprocess' hostname validation";
+    Stopwatch watch;
+
+    watch.start();
+    Try<string> lookup = net::getHostname(ip.get());
+    watch.stop();
+
+    // Due to MESOS-9339, a slow reverse DNS lookup will cause
+    // serious issues as it blocks the event loop thread.
+    if (watch.elapsed() > Milliseconds(100)) {
+      LOG(WARNING) << "Reverse DNS lookup for '" << ip.get() << "'"
+                   << " took " << watch.elapsed().ms() << "ms"
+                   << ", slowness is problematic (see MESOS-9339)";
+    }
+
+    if (lookup.isError()) {
+      VLOG(2) << "Could not determine hostname of peer: "
+              << lookup.error();
+    } else {
+      VLOG(2) << "Accepting from " << lookup.get();
+      peer_hostname = lookup.get();
+    }
+  }
+
+  if (!ssl_flags->verify_ipadd && peer_hostname.isNone()) {
     X509_free(cert);
     return ssl_flags->require_cert
       ? Error("Cannot verify peer certificate: peer hostname unknown")
@@ -762,7 +826,8 @@ Try<Nothing> verify(
 
   // From https://wiki.openssl.org/index.php/Hostname_validation.
   // Check the Subject Alternate Name extension (SAN). This is useful
-  // for certificates that serve multiple physical hosts.
+  // for certificates where multiple domains are served from the same
+  // physical host.
   STACK_OF(GENERAL_NAME)* san_names =
     reinterpret_cast<STACK_OF(GENERAL_NAME)*>(X509_get_ext_d2i(
         reinterpret_cast<X509*>(cert),
@@ -779,7 +844,7 @@ Try<Nothing> verify(
 
       switch(current_name->type) {
         case GEN_DNS: {
-          if (hostname.isSome()) {
+          if (peer_hostname.isSome()) {
             // Current name is a DNS name, let's check it.
             const string dns_name =
               reinterpret_cast<char*>(ASN1_STRING_data(
@@ -797,11 +862,11 @@ Try<Nothing> verify(
               VLOG(2) << "Matching dNSName(" << i << "): " << dns_name;
 
               // Compare expected hostname with the DNS name.
-              if (hostname.get() == dns_name) {
+              if (peer_hostname.get() == dns_name) {
                 sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);
                 X509_free(cert);
 
-                VLOG(2) << "dNSName match found for " << hostname.get();
+                VLOG(2) << "dNSName match found for " << peer_hostname.get();
 
                 return Nothing();
               }
@@ -840,7 +905,7 @@ Try<Nothing> verify(
     sk_GENERAL_NAME_pop_free(san_names, GENERAL_NAME_free);
   }
 
-  if (hostname.isSome()) {
+  if (peer_hostname.isSome()) {
     // If we still haven't verified the hostname, try doing it via
     // the certificate subject name.
     X509_NAME* name = X509_get_subject_name(cert);
@@ -855,14 +920,14 @@ Try<Nothing> verify(
               sizeof(text)) > 0) {
         VLOG(2) << "Matching common name: " << text;
 
-        if (hostname.get() != text) {
+        if (peer_hostname.get() != text) {
           X509_free(cert);
           return Error(
             "Presented Certificate Name: " + stringify(text) +
-            " does not match peer hostname name: " + hostname.get());
+            " does not match peer hostname name: " + peer_hostname.get());
         }
 
-        VLOG(2) << "Common name match found for " << hostname.get();
+        VLOG(2) << "Common name match found for " << peer_hostname.get();
 
         X509_free(cert);
         return Nothing();
@@ -875,8 +940,8 @@ Try<Nothing> verify(
 
   std::vector<string> details;
 
-  if (hostname.isSome()) {
-    details.push_back("hostname " + hostname.get());
+  if (peer_hostname.isSome()) {
+    details.push_back("hostname " + peer_hostname.get());
   }
 
   if (ip.isSome()) {
@@ -886,6 +951,60 @@ Try<Nothing> verify(
   return Error(
       "Could not verify presented certificate with " +
       strings::join(", ", details));
+}
+
+
+// A callback to configure the `SSL` object before the connection is
+// established.
+Try<Nothing> configure_socket(
+    SSL* ssl,
+    openssl::Mode mode,
+    const Address& peer)
+{
+  if (!ssl_flags->verify_cert) {
+    return Nothing();
+  }
+
+  if (ssl_flags->hostname_validation_algorithm == "openssl") {
+#if OPENSSL_VERSION < 0x10100000L
+    // We should have already checked this during startup.
+    EXIT(EXIT_FAILURE) <<
+        "The linked OpenSSL library does not support `SSL_set1_host()` for"
+        " hostname validation. OpenSSL >= 1.1.0 is required.";
+#else
+    if (mode == openssl::Mode::SERVER) {
+      // We don't do client hostname validation, because the application layer
+      // should set the policy on which certificate fields are considered a
+      // valid proof of identity.
+      //
+      // TODO(bevers): Provide hooks to the application code to make these
+      // policy decisions, for example via a Mesos module.
+      return Nothing();
+    }
+
+    // Disallow wildcards like `www*.example.com`.
+    SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+
+    // Decide whether we want to verify the peer's IP or DNS name.
+    if (address.peer_hostname.isSome()) {
+      if (!SSL_set1_host(ssl, address.peer_hostname->c_str())) {
+        return Error("Could not enable x509 hostname check.");
+      }
+    } else {
+      if (!ssl_flags.verify_ipadd) {
+        return Error("No DNS name given and IP address verification is "
+                     " disabled. I cannot work like this :(");
+      }
+
+      string ip = stringify(address->ip);
+      X509_VERIFY_PARAM *param = SSL_get0_param(SSL *ssl);
+      if (!X509_VERIFY_PARAM_set1_ip_asc(param, ip.c_str())) {
+        return Error("Could not enable x509 ip check.");
+      }
+#endif
+  }
+
+  return Nothing();
 }
 
 } // namespace openssl {

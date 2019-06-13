@@ -526,6 +526,13 @@ Future<Nothing> LibeventSSLSocketImpl::connect(const Address& address)
     return Failure("Failed to connect: SSL_new");
   }
 
+  Try<Nothing> configured = openssl::configure_socket(
+      ssl, openssl::Mode::CLIENT, address);
+
+  if (configured.isError()) {
+    return Failure("Failed to configure socket: " + configured.error());
+  }
+
   // Construct the bufferevent in the connecting state.
   // We set 'BEV_OPT_DEFER_CALLBACKS' to avoid calling the
   // 'event_callback' before 'bufferevent_socket_connect' returns.
@@ -544,24 +551,20 @@ Future<Nothing> LibeventSSLSocketImpl::connect(const Address& address)
     return Failure("Failed to connect: bufferevent_openssl_socket_new");
   }
 
+
   if (address.family() == Address::Family::INET4 ||
       address.family() == Address::Family::INET6) {
-    // Try and determine the 'peer_hostname' from the address we're
-    // connecting to in order to properly verify the certificate
-    // later.
-    const Try<string> hostname =
-      network::convert<inet::Address>(address)->hostname();
+    inet::Address inetAddress = network::convert<inet::Address>(address).get();
 
-    if (hostname.isError()) {
-      VLOG(2) << "Could not determine hostname of peer: " << hostname.error();
+    if (inetAddress.peer_hostname.isSome()) {
+      peer_hostname = inetAddress.peer_hostname.get();
+      VLOG(2) << "Connecting to " << peer_hostname.get();
     } else {
-      VLOG(2) << "Connecting to " << hostname.get();
-      peer_hostname = hostname.get();
+      VLOG(2) << "No peer hostname configured for address " << address;
     }
-
     // Determine the 'peer_ip' from the address we're connecting to in
     // order to properly verify the certificate later.
-    peer_ip = network::convert<inet::Address>(address)->ip;
+    peer_ip = inetAddress.ip;
   }
 
   // Optimistically construct a 'ConnectRequest' and future.
@@ -1117,6 +1120,25 @@ void LibeventSSLSocketImpl::accept_SSL_callback(AcceptRequest* request)
     return;
   }
 
+  Try<Address> peer_address = network::peer(request->socket);
+  if (!peer_address.isSome()) {
+    request->promise.fail("Could not determine peername for connection.");
+    delete request;
+    return;
+  }
+
+  // NOTE: Right now, the configure callback does not do anything in server
+  // mode, but we still pass the correct peer address to enable modules to
+  // implement application-level logic in the future.
+  Try<Nothing> configured = openssl::configure_socket(
+      ssl, openssl::Mode::SERVER, peer_address.get());
+
+  if (configured.isError()) {
+    request->promise.fail("Could not configure socket: " + configured.error());
+    delete request;
+    return;
+  }
+
   // We use 'request->listener' because 'this->listener' may not have
   // been set by the time this function is executed. See comment in
   // the lambda for evconnlistener_new in
@@ -1154,41 +1176,12 @@ void LibeventSSLSocketImpl::accept_SSL_callback(AcceptRequest* request)
         if (events & BEV_EVENT_EOF) {
           request->promise.fail("Failed accept: connection closed");
         } else if (events & BEV_EVENT_CONNECTED) {
-          // We will receive a 'CONNECTED' state on an accepting socket
-          // once the connection is established. Time to do
-          // post-verification. First, we need to determine the peer
-          // hostname.
-          Option<string> peer_hostname = None();
-
-          if (request->ip.isSome()) {
-            Stopwatch watch;
-
-            watch.start();
-            Try<string> hostname = net::getHostname(request->ip.get());
-            watch.stop();
-
-            // Due to MESOS-9339, a slow reverse DNS lookup will cause
-            // serious issues as it blocks the event loop thread.
-            if (watch.elapsed() > Milliseconds(100)) {
-              LOG(WARNING) << "Reverse DNS lookup for '" << *request->ip << "'"
-                           << " took " << watch.elapsed().ms() << "ms"
-                           << ", slowness is problematic (see MESOS-9339)";
-            }
-
-            if (hostname.isError()) {
-              VLOG(2) << "Could not determine hostname of peer: "
-                      << hostname.error();
-            } else {
-              VLOG(2) << "Accepting from " << hostname.get();
-              peer_hostname = hostname.get();
-            }
-          }
-
           SSL* ssl = bufferevent_openssl_get_ssl(bev);
           CHECK_NOTNULL(ssl);
 
-          Try<Nothing> verify =
-            openssl::verify(ssl, Mode::SERVER, peer_hostname, request->ip);
+          Option<string> peer_hostname = None();
+          Try<Nothing> verify = openssl::verify(
+              ssl, Mode::SERVER, peer_hostname, request->ip);
 
           if (verify.isError()) {
             VLOG(1) << "Failed accept, verification error: " << verify.error();
