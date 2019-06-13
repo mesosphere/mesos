@@ -80,6 +80,56 @@ _SSLv2 is disabled completely because modern versions of OpenSSL disable it usin
 List of elliptic curves which should be used for ECDHE-based cipher suites, in preferred order. Available values depend on the OpenSSL version used. Default value `auto` allows OpenSSL to pick the curve automatically.
 OpenSSL versions prior to `1.0.2` allow for the use of only one curve; in those cases, `auto` defaults to `prime256v1`.
 
+#### LIBPROCESS_SSL_HOSTNAME_VALIDATION_ALGORITHM=(libprocess|openssl|auto) [default=libprocess]
+This flag is used to select the algorithm libprocess uses to do
+hostname validation.
+
+Since hostname validation is part of certificate verification, this flag has no
+effect unless `LIBPROCESS_SSL_VERIFY_CERT` is set to true.
+
+Currently, one can choose between two algorithms:
+
+  - openssl:
+
+    In client mode: Perform hostname validation during the TLS handshake.
+    If the client connects via hostname, accept the certificate if it contains
+    the hostname as common name (CN) or as a subject alternative name (SAN).
+    If the client connects via IP address and `LIBPROCESS_SSL_VERIFY_IPADD` is true,
+    accept the certificate if it contains the IP as a subject alternative name.
+
+    In server mode: Dont do hostname validation.
+
+    This setting requires OpenSSL >= 1.1.0 to be used.
+
+  - libprocess:
+
+    Use a hand-written hostname validation algorithm that
+    is run after the connection is established, and close the connection if
+    it fails.
+
+    In client mode: If the client connects via hostname, accept the certificate
+    if it contains the DNS name as common name or as a subject alternative name,
+    or if contains the IP address. (if `LIBPROCESS_SSL_VERIFY_IPADD` is true)
+    If the client connects via IP address, do a reverse DNS lookup on the IP
+    and proceed as if the client connected to the first result of that lookup.
+
+    In server mode: Do a reverse DNS lookup on the client IP address and accept
+    the certificate if it contains the DNS name of the first result as common
+    name or as a subject alternative name, or if it contains the client IP
+    and `LIBPROCESS_SSL_VERIFY_IPADD` is true.
+
+
+It is suggested that operators choose the 'openssl' setting unless they have
+applications relying on the behaviour of the 'libprocess' algorithm, since it is
+using standardized APIs (`X509_VERIFY_PARAM_check_{host,ip}`) provided by OpenSSL to
+make hostname validation more uniform across applications. It is also more secure,
+since attackers that are able to forge DNS or rDNS result can launch a successful
+man-in-the-middle attack on the 'libprocess' algorithm.
+
+NOTE: Due to the implementation of libprocess itself, it is currently probably
+required to deploy certificates including IP address SANs for Mesos master and
+agents when using the 'openssl' algorithm.
+
 ### libevent
 We require the OpenSSL support from libevent. The suggested version of libevent is [`2.0.22-stable`](https://github.com/libevent/libevent/releases/tag/release-2.0.22-stable). As new releases come out we will try to maintain compatibility.
 
