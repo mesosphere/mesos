@@ -723,6 +723,7 @@ SSL_CTX* context()
 
 Try<Nothing> verify(
     const SSL* const ssl,
+    Mode mode,
     const Option<string>& hostname,
     const Option<net::IP>& ip)
 {
@@ -735,10 +736,16 @@ Try<Nothing> verify(
   // TODO(jmlvanre): handle this better. How about RAII?
   X509* cert = SSL_get_peer_certificate(ssl);
 
+  // We only allow empty/missing peer certificates when in server mode and
+  // the `LIBPROCESS_SSL_REQUIRE_CERT` environment variable is not set.
+  // In client mode, we always require a server certificate that can be
+  // verified.
+  //
+  // NOTE: This prevents the use of anonymous ciphers in client mode.
   if (cert == nullptr) {
-    return ssl_flags->require_cert
-      ? Error("Peer did not provide certificate")
-      : Try<Nothing>(Nothing());
+    return (mode == Mode::SERVER && !ssl_flags->require_cert)
+      ? Try<Nothing>(Nothing())
+      : Error("Peer did not provide certificate");
   }
 
   if (SSL_get_verify_result(ssl) != X509_V_OK) {
