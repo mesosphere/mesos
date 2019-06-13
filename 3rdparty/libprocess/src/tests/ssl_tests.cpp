@@ -129,6 +129,13 @@ static const vector<string> protocols = {
 #endif
 };
 
+static const vector<string> hostname_validation_algorithms = {
+  "legacy",
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+  "openssl",
+#endif
+};
+
 
 // Ensure that we can't create an SSL socket when SSL is not enabled.
 TEST(SSL, Disabled)
@@ -746,6 +753,39 @@ TEST_F(SSLTest, ShutdownThenSend)
 
 
 #endif // USE_SSL_SOCKET
+
+
+class SSLHostnameValidationTest
+  : public SSLTest,
+    public ::testing::WithParamInterface<std::string> {};
+
+INSTANTIATE_TEST_CASE_P(SSLHostnameMismatch,
+                        SSLHostnameValidationTest,
+                        ::testing::ValuesIn(hostname_validation_algorithms));
+
+
+// Test that a server presenting a valid certificate for the wrong
+// hostname is rejected when VERIFY_CERT is enabled.
+TEST_P(SSLHostnameValidationTest, HostnameMismatch)
+{
+  os::setenv("LIBPROCESS_SSL_ENABLED", "true");
+  os::setenv("LIBPROCESS_SSL_KEY_FILE", key_path().string());
+  os::setenv("LIBPROCESS_SSL_CERT_FILE", certificate_path().string());
+  os::setenv("LIBPROCESS_SSL_VERIFY_CERT", "true");
+  os::setenv("LIBPROCESS_SSL_CA_DIR", os::getcwd());
+  os::setenv("LIBPROCESS_SSL_CA_FILE", certificate_path().string());
+
+  openssl::reinitialize();
+
+  Try<Socket> server = Socket::create(SocketImpl::Kind::SSL);
+  ASSERT_SOME(server);
+
+  Try<Socket> client = Socket::create(SocketImpl::Kind::SSL);
+  ASSERT_SOME(client);
+
+  // [...]
+}
+
 
 
 class SSLVerifyIPAddTest : public SSLTest,
