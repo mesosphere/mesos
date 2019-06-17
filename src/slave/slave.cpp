@@ -5325,13 +5325,16 @@ void Slave::subscribe(
 
 
 void Slave::registerExecutor(
-    const UPID& from,
+    const UPID& from_,
     const FrameworkID& frameworkId,
     const ExecutorID& executorId)
 {
   LOG(INFO) << "Got registration for executor '" << executorId
             << "' of framework " << frameworkId << " from "
-            << stringify(from);
+            << stringify(from_);
+
+  UPID from(from_);
+  from.host = "localhost";
 
   CHECK(state == RECOVERING || state == DISCONNECTED ||
         state == RUNNING || state == TERMINATING)
