@@ -441,8 +441,13 @@ void LibeventSSLSocketImpl::event_callback(short events)
     // Do post-validation of connection.
     SSL* ssl = bufferevent_openssl_get_ssl(bev);
 
+    // We intentionally don't store the hostname passed to
+    // `connect()`: The 'openssl' hostname validation already
+    // verified the hostname if we get here, and the 'libprocess'
+    // algorithm always uses rDNS lookups on the ip for backwards
+    // compatibility with the previous behaviour.
     Try<Nothing> verify = openssl::verify(
-        ssl, Mode::CLIENT, peer_hostname, peer_ip);
+        ssl, Mode::CLIENT, None(), peer_ip);
 
     if (verify.isError()) {
       VLOG(1) << "Failed connect, verification error: " << verify.error();
@@ -511,7 +516,7 @@ LibeventSSLSocketImpl::LibeventSSLSocketImpl(
 
 Future<Nothing> LibeventSSLSocketImpl::connect(
     const Address& address,
-    const Option<string>& peer_hostname_)
+    const Option<string>& peer_hostname)
 {
   if (bev != nullptr) {
     return Failure("Socket is already connected");
@@ -551,10 +556,7 @@ Future<Nothing> LibeventSSLSocketImpl::connect(
     return Failure("Failed to connect: bufferevent_openssl_socket_new");
   }
 
-  if (peer_hostname_.isSome()) {
-    // Store the 'peer_hostname' to be able to verify the hostname in
-    // the certificate later.
-    peer_hostname = peer_hostname_;
+  if (peer_hostname.isSome()) {
     VLOG(2) << "Connecting to peer " << peer_hostname.get();
   } else {
     VLOG(2) << "No peer hostname configured for connection to " << address;

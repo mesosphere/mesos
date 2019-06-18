@@ -189,7 +189,6 @@ private:
   // discards through.
   Queue<Future<std::shared_ptr<SocketImpl>>> accept_queue;
 
-  Option<std::string> peer_hostname;
   Option<net::IP> peer_ip;
 };
 
