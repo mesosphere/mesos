@@ -499,16 +499,14 @@ LibeventSSLSocketImpl::LibeventSSLSocketImpl(int_fd _s)
 
 LibeventSSLSocketImpl::LibeventSSLSocketImpl(
     int_fd _s,
-    bufferevent* _bev,
-    Option<string>&& _peer_hostname)
+    bufferevent* _bev)
   : SocketImpl(_s),
     bev(_bev),
     listener(nullptr),
     recv_request(nullptr),
     send_request(nullptr),
     connect_request(nullptr),
-    event_loop_handle(nullptr),
-    peer_hostname(std::move(_peer_hostname)) {}
+    event_loop_handle(nullptr) {}
 
 
 Future<Nothing> LibeventSSLSocketImpl::connect(
@@ -529,7 +527,7 @@ Future<Nothing> LibeventSSLSocketImpl::connect(
   }
 
   Try<Nothing> configured = openssl::configure_socket(
-      ssl, openssl::Mode::CLIENT, address);
+      ssl, openssl::Mode::CLIENT, address, peer_hostname);
 
   if (configured.isError()) {
     return Failure("Failed to configure socket: " + configured.error());
@@ -553,17 +551,19 @@ Future<Nothing> LibeventSSLSocketImpl::connect(
     return Failure("Failed to connect: bufferevent_openssl_socket_new");
   }
 
+  if (peer_hostname_.isSome()) {
+    // Store the 'peer_hostname' to be able to verify the hostname in
+    // the certificate later.
+    peer_hostname = peer_hostname_;
+    VLOG(2) << "Connecting to peer " << peer_hostname.get();
+  } else {
+    VLOG(2) << "No peer hostname configured for connection to " << address;
+  }
 
   if (address.family() == Address::Family::INET4 ||
       address.family() == Address::Family::INET6) {
     inet::Address inetAddress = network::convert<inet::Address>(address).get();
 
-    if (inetAddress.peer_hostname.isSome()) {
-      peer_hostname = inetAddress.peer_hostname.get();
-      VLOG(2) << "Connecting to " << peer_hostname.get();
-    } else {
-      VLOG(2) << "No peer hostname configured for address " << address;
-    }
     // Determine the 'peer_ip' from the address we're connecting to in
     // order to properly verify the certificate later.
     peer_ip = inetAddress.ip;
@@ -1133,7 +1133,7 @@ void LibeventSSLSocketImpl::accept_SSL_callback(AcceptRequest* request)
   // mode, but we still pass the correct peer address to enable modules to
   // implement application-level logic in the future.
   Try<Nothing> configured = openssl::configure_socket(
-      ssl, openssl::Mode::SERVER, peer_address.get());
+      ssl, openssl::Mode::SERVER, peer_address.get(), None());
 
   if (configured.isError()) {
     request->promise.fail("Could not configure socket: " + configured.error());
@@ -1181,9 +1181,8 @@ void LibeventSSLSocketImpl::accept_SSL_callback(AcceptRequest* request)
           SSL* ssl = bufferevent_openssl_get_ssl(bev);
           CHECK_NOTNULL(ssl);
 
-          Option<string> peer_hostname = None();
           Try<Nothing> verify = openssl::verify(
-              ssl, Mode::SERVER, peer_hostname, request->ip);
+              ssl, Mode::SERVER, None(), request->ip);
 
           if (verify.isError()) {
             VLOG(1) << "Failed accept, verification error: " << verify.error();
@@ -1206,8 +1205,7 @@ void LibeventSSLSocketImpl::accept_SSL_callback(AcceptRequest* request)
           auto impl = std::shared_ptr<LibeventSSLSocketImpl>(
               new LibeventSSLSocketImpl(
                   request->socket,
-                  bev,
-                  std::move(peer_hostname)));
+                  bev));
 
           // See comment at 'initialize' declaration for why we call
           // this.

@@ -138,21 +138,6 @@ public:
   // either the `ip` or `port` field are currently used.
   net::IP ip;
   uint16_t port;
-
-  // The hostname to be used for TLS hostname validation.
-  // For non-TLS connections, this is ignored and can be left empty.
-  //
-  // If `peer_hostname` is empty and certificate verification is enabled,
-  // the server certificate must include the specified IP address in its
-  // list of subject alternate names, otherwise the connection attempt will
-  // fail.
-  //
-  // NOTE: This can also be set manually by the user to override the result
-  // of DNS resolution, similar to `curl --resolve`.
-  //
-  // TODO(bevers): Figure out if hostname validation over unix sockets makes
-  // sense, and if so move this into the general `Address` class.
-  Option<std::string> peer_hostname;
 };
 
 

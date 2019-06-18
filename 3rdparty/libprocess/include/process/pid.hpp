@@ -193,6 +193,19 @@ struct UPID
     Option<network::inet6::Address> v6;
   } addresses = {None()};
 
+  // The hostname to be used for TLS hostname validation.
+  // If no TLS connection is established, this field is ignored
+  // and can be left empty.
+  //
+  // If `peer_hostname` is empty and certificate verification is enabled,
+  // the server certificate must include the specified IP address in its
+  // list of subject alternate names, otherwise the connection attempt will
+  // fail.
+  //
+  // NOTE: This can also be set manually by the user to override the result
+  // of DNS resolution, similar to `curl --resolve`.
+  Option<std::string> peer_hostname;
+
 protected:
   friend class ProcessBase;
   friend class ProcessManager;

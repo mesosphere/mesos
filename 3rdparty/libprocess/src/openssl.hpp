@@ -83,12 +83,13 @@ Try<Nothing> verify(
     const Option<std::string>& hostname = None(),
     const Option<net::IP>& ip = None());
 
-// Callback to set SSL options after the TCP connection was established but
-// before the TLS handshake happens.
+// Callback for setting SSL options after the TCP connection was
+// established but before the TLS handshake has started.
 Try<Nothing> configure_socket(
     SSL* ssl,
     Mode mode,
-    const Address& peer_address);
+    const Address& peer,
+    const Option<std::string>& peer_hostname);
 
 } // namespace openssl {
 } // namespace network {

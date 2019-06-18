@@ -114,8 +114,7 @@ private:
   // functions.
   LibeventSSLSocketImpl(
       int_fd _s,
-      bufferevent* bev,
-      Option<std::string>&& peer_hostname);
+      bufferevent* bev);
 
   // This is called when the equivalent of 'accept' returns. The role
   // of this function is to set up the SSL object and bev. If we

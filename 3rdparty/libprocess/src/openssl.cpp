@@ -958,7 +958,8 @@ Try<Nothing> verify(
 Try<Nothing> configure_socket(
     SSL* ssl,
     openssl::Mode mode,
-    const Address& peer)
+    const Address& peer,
+    const Option<std::string>& peer_hostname)
 {
   if (!ssl_flags->verify_cert) {
     return Nothing();
