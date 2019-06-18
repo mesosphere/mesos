@@ -44,6 +44,10 @@
 #include <openssl/applink.c>
 #endif // __WINDOWS__
 
+// Smallest OpenSSL version number to which the `X509_VERIFY_PARAM_*()`
+// family of functions was backported. (OpenSSL 1.0.2)
+#define MIN_VERSION_X509_VERIFY_PARAM 0x10002000L
+
 using std::map;
 using std::ostringstream;
 using std::string;
@@ -144,7 +148,7 @@ Flags::Flags()
       " verifying certificates.\n"
       "Possible values: 'libprocess', 'openssl'\n"
       "See `docs/ssl.md` for details on the individual algorithms.\n"
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < MIN_VERSION_X509_VERIFY_PARAM
       "NOTE: The currently linked version of OpenSSL is too old to support"
       " the 'openssl' algorithm.\n"
 #endif
@@ -563,7 +567,7 @@ void reinitialize()
   }
 
   if (ssl_flags->hostname_validation_algorithm == "openssl" &&
-      OPENSSL_VERSION_NUMBER < 0x10100000L) {
+      OPENSSL_VERSION_NUMBER < MIN_VERSION_X509_VERIFY_PARAM) {
     LOG(FATAL) << "OpenSSL built-in hostname validation requires at least"
                << " OpenSSL 1.1.0";
   }
@@ -958,7 +962,7 @@ Try<Nothing> verify(
 Try<Nothing> configure_socket(
     SSL* ssl,
     openssl::Mode mode,
-    const Address& peer,
+    const Address& peer_address,
     const Option<std::string>& peer_hostname)
 {
   if (!ssl_flags->verify_cert) {
@@ -966,11 +970,11 @@ Try<Nothing> configure_socket(
   }
 
   if (ssl_flags->hostname_validation_algorithm == "openssl") {
-#if OPENSSL_VERSION < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < MIN_VERSION_X509_VERIFY_PARAM
     // We should have already checked this during startup.
     EXIT(EXIT_FAILURE) <<
-        "The linked OpenSSL library does not support `SSL_set1_host()` for"
-        " hostname validation. OpenSSL >= 1.1.0 is required.";
+        "The linked OpenSSL library does not support `X509_VERIFY_PARAM` for"
+        " hostname validation. OpenSSL >= 1.0.2 is required.";
 #else
     if (mode == openssl::Mode::SERVER) {
       // We don't do client hostname validation, because the application layer
@@ -983,24 +987,35 @@ Try<Nothing> configure_socket(
     }
 
     // Disallow wildcards like `www*.example.com`.
-    SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+    X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+    X509_VERIFY_PARAM_set_hostflags(
+        param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 
     // Decide whether we want to verify the peer's IP or DNS name.
-    if (address.peer_hostname.isSome()) {
-      if (!SSL_set1_host(ssl, address.peer_hostname->c_str())) {
+    if (peer_hostname.isSome()) {
+      if (!X509_VERIFY_PARAM_set1_host(param, peer_hostname->c_str(), 0)) {
         return Error("Could not enable x509 hostname check.");
       }
     } else {
-      if (!ssl_flags.verify_ipadd) {
+      if (!ssl_flags->verify_ipadd) {
         return Error("No DNS name given and IP address verification is "
                      " disabled. I cannot work like this :(");
       }
 
-      string ip = stringify(address->ip);
-      X509_VERIFY_PARAM *param = SSL_get0_param(SSL *ssl);
+      if (peer_address.family() != Address::Family::INET4 &&
+          peer_address.family() != Address::Family::INET6) {
+        return Error("Can only use IPv4 or IPv6 addresses for IP address"
+                     " validation.");
+      }
+
+      Try<inet::Address> inetAddress =
+        network::convert<inet::Address>(peer_address);
+
+      string ip = stringify(inetAddress->ip);
       if (!X509_VERIFY_PARAM_set1_ip_asc(param, ip.c_str())) {
         return Error("Could not enable x509 ip check.");
       }
+    }
 #endif
   }
 

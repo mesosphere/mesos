@@ -444,8 +444,8 @@ void LibeventSSLSocketImpl::event_callback(short events)
     // We intentionally don't store the hostname passed to
     // `connect()`: The 'openssl' hostname validation already
     // verified the hostname if we get here, and the 'libprocess'
-    // algorithm always uses rDNS lookups on the ip for backwards
-    // compatibility with the previous behaviour.
+    // algorithm should always use rDNS lookups on the IP address
+    // for backwards compatibility with the previous behaviour.
     Try<Nothing> verify = openssl::verify(
         ssl, Mode::CLIENT, None(), peer_ip);
 
