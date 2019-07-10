@@ -6222,6 +6222,54 @@ void Master::declineInverseOffers(
 }
 
 
+void Master::checkAndTransitionDrainingAgent(Slave* slave)
+{
+  CHECK_NOTNULL(slave);
+
+  const SlaveID& slaveId = slave->id;
+
+  if (!slaves.draining.contains(slaveId)) {
+    // Nothing to do for non-draining agents.
+    return;
+  }
+
+  // Check if the agent has any tasks running or operations pending.
+  if (!slave->pendingTasks.empty() ||
+      !slave->tasks.empty() ||
+      !slave->operations.empty()) {
+    return;
+  }
+
+  LOG(INFO) << "Transitioning agent " << slave->id << " to the DRAINED state";
+
+  registrar->apply(Owned<RegistryOperation>(
+      new MarkAgentDrained(slaveId)))
+    .onAny([](const Future<bool>& result) {
+      CHECK_READY(result)
+        << "Failed to update draining info in the registry";
+    })
+    .then(defer(
+        self(),
+        [this, slaveId](bool result) -> Future<Nothing> {
+          if (!slaves.draining.contains(slaveId)) {
+            LOG(INFO)
+              << "Agent " << slaveId << " was removed while being"
+              << " marked as DRAINED";
+            return Nothing();
+          }
+
+          slaves.draining[slaveId].set_state(DRAINED);
+
+          // Handle agents marked for draining with `mark_gone == true`.
+          if (slaves.draining.at(slaveId).config().mark_gone()) {
+            markGone(slaveId, protobuf::getCurrentTime());
+          }
+
+          return Nothing();
+        }));
+}
+
+
 void Master::reviveOffers(
     const UPID& from,
     const FrameworkID& frameworkId,
@@ -6586,6 +6634,8 @@ void Master::acknowledge(
   send(slave->pid, message);
 
   metrics->valid_status_update_acknowledgements++;
+
+  checkAndTransitionDrainingAgent(slave);
 }
 
 
@@ -6717,6 +6767,8 @@ void Master::acknowledgeOperationStatus(
   send(slave->pid, message);
 
   metrics->valid_operation_status_update_acknowledgements++;
+
+  checkAndTransitionDrainingAgent(slave);
 }
 
 
@@ -9371,6 +9423,8 @@ void Master::markGone(const SlaveID& slaveId, const TimeInfo& goneTime)
     }
 
     slaves.unreachable.erase(slaveId);
+    slaves.draining.erase(slaveId);
+    slaves.deactivated.erase(slaveId);
 
     // TODO(vinod): Consider moving these tasks into `completedTasks` by
     // transitioning them to a terminal state and sending status updates.
@@ -11583,6 +11637,13 @@ void Master::_removeSlave(
   CHECK(machines.contains(slave->machineId));
   CHECK(machines[slave->machineId].slaves.contains(slave->id));
   machines[slave->machineId].slaves.erase(slave->id);
+
+  // Remove any draining information about the agent.
+  // NOTE: This should not be mirrored by `__removeSlave` because that
+  // method handles both unreachable and gone agents. Unreachable agents
+  // will retain their draining information, but gone agents will not.
+  slaves.draining.erase(slave->id);
+  slaves.deactivated.erase(slave->id);
 
   // Kill the slave observer.
   terminate(slave->observer);
