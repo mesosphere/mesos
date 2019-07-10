@@ -3946,14 +3946,16 @@ Future<Response> Master::Http::drainAgent(
     //
     // TODO(josephw): Reconsider this check once the maintenance and agent
     // draining features are integrated.
-    foreach (
-        const mesos::maintenance::Window& window,
-        master->maintenance.schedules.front().windows()) {
-      foreach (const MachineID& machineId, window.machine_ids()) {
-        if (machineId == slave->machineId) {
-          return BadRequest(
-              "Agent " + stringify(slaveId) + " is part of a maintenance"
-              " schedule under Machine " + stringify(machineId));
+    if (!master->maintenance.schedules.empty()) {
+      foreach (
+          const mesos::maintenance::Window& window,
+          master->maintenance.schedules.front().windows()) {
+        foreach (const MachineID& machineId, window.machine_ids()) {
+          if (machineId == slave->machineId) {
+            return BadRequest(
+                "Agent " + stringify(slaveId) + " is part of a maintenance"
+                " schedule under Machine " + stringify(machineId));
+          }
         }
       }
     }
