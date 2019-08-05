@@ -2426,9 +2426,15 @@ void Master::drop(
 
 
 void Master::receive(
-    const UPID& from,
+    const UPID& from_,
     scheduler::Call&& call)
 {
+  // Enforce "localhost" as SAN for outgoing TLS connection to the scheduler
+  // as a workaround, since we can't have proper hostname validation for
+  // master -> scheduler communication. See DCOS-57220.
+  UPID from(from_);
+  from.host = "localhost";
+
   // TODO(vinod): Add metrics for calls.
 
   Option<Error> error = validation::scheduler::call::validate(call);
@@ -2562,9 +2568,15 @@ void Master::receive(
 
 
 void Master::registerFramework(
-    const UPID& from,
+    const UPID& from_,
     RegisterFrameworkMessage&& registerFrameworkMessage)
 {
+  // Enforce "localhost" as SAN for outgoing TLS connection to the scheduler
+  // as a workaround, since we can't have proper hostname validation for
+  // master -> scheduler communication. See DCOS-57220.
+  UPID from(from_);
+  from.host = "localhost";
+
   FrameworkInfo frameworkInfo =
     std::move(*registerFrameworkMessage.mutable_framework());
 
@@ -2589,9 +2601,15 @@ void Master::registerFramework(
 
 
 void Master::reregisterFramework(
-    const UPID& from,
+    const UPID& from_,
     ReregisterFrameworkMessage&& reregisterFrameworkMessage)
 {
+  // Enforce "localhost" as SAN for outgoing TLS connection to the scheduler
+  // as a workaround, since we can't have proper hostname validation for
+  // master -> scheduler communication. See DCOS-57220.
+  UPID from(from_);
+  from.host = "localhost";
+
   FrameworkInfo frameworkInfo =
     std::move(*reregisterFrameworkMessage.mutable_framework());
 
@@ -10603,8 +10621,14 @@ void Master::inverseOffer(
 // 'authenticate' message doesn't contain the 'FrameworkID'.
 // 'from' is the authenticatee process with which to communicate.
 // 'pid' is the framework/slave process being authenticated.
-void Master::authenticate(const UPID& from, const UPID& pid)
+void Master::authenticate(const UPID& from_, const UPID& pid)
 {
+  // Enforce "localhost" as SAN for outgoing TLS connection to the scheduler
+  // as a workaround, since we can't have proper hostname validation for
+  // master -> scheduler communication. See DCOS-57220.
+  UPID from(from_);
+  from.host = "localhost";
+
   ++metrics->messages_authenticate;
 
   // An authentication request is sent by a client (slave/framework)
