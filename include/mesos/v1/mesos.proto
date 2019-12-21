@@ -2274,7 +2274,7 @@ message TaskInfo {
   optional DurationInfo max_completion_time = 14;
 
   // Resource limits associated with the task.
-  map<string, Value.Scalar> limits = 15;
+  map<string, Value.Scalar> limits = 15; // EXPERIMENTAL.
 }
 
 
@@ -3345,7 +3345,7 @@ message LinuxInfo {
   //    single executor.
   // 3. It is not allowed to set resource limits for the task which has this
   //    field set as true.
-  optional bool share_cgroups = 8 [default = true];
+  optional bool share_cgroups = 8 [default = true]; // EXPERIMENTAL.
 }
 
 
