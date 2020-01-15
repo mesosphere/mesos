@@ -493,14 +493,14 @@ void reinitialize()
   // to re-initialize are things that are overwrites of settings,
   // rather than allocations of new data structures.
   if (!initialized_single_entry->once()) {
+    // Initialize the OpenSSL library.
+    SSL_library_init();
+    SSL_load_error_strings();
+
     // We MUST have entropy, or else there's no point to crypto.
     if (!RAND_poll()) {
       EXIT(EXIT_FAILURE) << "SSL socket requires entropy";
     }
-
-    // Initialize the OpenSSL library.
-    SSL_library_init();
-    SSL_load_error_strings();
 
     // Prepare mutexes for threading callbacks.
     mutexes = new std::mutex[CRYPTO_num_locks()];
