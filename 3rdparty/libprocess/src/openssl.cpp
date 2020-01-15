@@ -495,7 +495,10 @@ void reinitialize()
   if (!initialized_single_entry->once()) {
     // We MUST have entropy, or else there's no point to crypto.
     if (!RAND_poll()) {
-      EXIT(EXIT_FAILURE) << "SSL socket requires entropy";
+      SSL_load_error_strings();
+      unsigned long error = ERR_get_error();
+      EXIT(EXIT_FAILURE)
+        << "SSL socket requires entropy: " + error_string(error);
     }
 
     // Initialize the OpenSSL library.
