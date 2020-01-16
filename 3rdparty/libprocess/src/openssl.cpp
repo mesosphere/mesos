@@ -499,7 +499,9 @@ void reinitialize()
 
     // We MUST have entropy, or else there's no point to crypto.
     if (!RAND_poll()) {
-      EXIT(EXIT_FAILURE) << "SSL socket requires entropy";
+      unsigned long error = ERR_get_error();
+      EXIT(EXIT_FAILURE)
+        << "SSL socket requires entropy: " + error_string(error);
     }
 
     // Prepare mutexes for threading callbacks.
