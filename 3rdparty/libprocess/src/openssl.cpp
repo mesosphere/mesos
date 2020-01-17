@@ -497,12 +497,17 @@ void reinitialize()
     SSL_library_init();
     SSL_load_error_strings();
 
+    // Some Windows machines will not respond well to calling `RAND_poll()`
+    // here, so we avoid it on that platform. This should not affect the actual
+    // level of security achieved by the library.
+#ifndef __WINDOWS__
     // We MUST have entropy, or else there's no point to crypto.
     if (!RAND_poll()) {
       unsigned long error = ERR_get_error();
       EXIT(EXIT_FAILURE)
         << "SSL socket requires entropy: " + error_string(error);
     }
+#endif // __WINDOWS__
 
     // Prepare mutexes for threading callbacks.
     mutexes = new std::mutex[CRYPTO_num_locks()];
