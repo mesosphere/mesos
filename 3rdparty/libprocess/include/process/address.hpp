@@ -201,9 +201,9 @@ public:
 } // namespace inet6 {
 
 
-#ifndef __WINDOWS__
 namespace unix {
 
+#ifndef __WINDOWS__
 class Address
 {
 public:
@@ -312,9 +312,41 @@ inline std::ostream& operator<<(
   }
   return stream << path;
 }
+#else // __WINDOWS__
+class Address
+{
+public:
+  static Try<Address> create(const std::string& path)
+  {
+    return Address();
+  }
+
+  size_t size() const
+  {
+    return 0;
+  }
+
+  std::string path() const
+  {
+    return std::string();
+  }
+
+  bool operator==(const Address& that) const
+  {
+    return false;
+  }
+};
+
+
+inline std::ostream& operator<<(
+    std::ostream& stream,
+    const Address& address)
+{
+  return stream;
+}
+#endif // __WINDOWS__
 
 } // namespace unix {
-#endif // __WINDOWS__
 
 
 // Represents a network "address", subsuming the `struct addrinfo` and
