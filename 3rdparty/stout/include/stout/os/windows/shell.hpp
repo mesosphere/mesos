@@ -145,9 +145,15 @@ inline Option<std::wstring> create_process_env(
 
 
 // Concatenates multiple command-line arguments and escapes the values.
+//
 // NOTE: This is necessary even when using Windows APIs that "appear"
 // to take arguments as a list, because those APIs will themselves
 // concatenate command-line arguments *without* escaping them.
+//
+// NOTE: Since we use 'cmd.exe' as the shell on Windows, argument strings
+// pass through two layers of processing. First, they are processed by
+// 'cmd.exe', and then they are processed by the Microsoft C runtime
+// libraries.
 //
 // This function escapes arguments with the following rules:
 //   1) Any argument with a space, tab, newline, vertical tab,
@@ -155,6 +161,8 @@ inline Option<std::wstring> create_process_env(
 //   2) Backslashes at the very end of an argument must be escaped.
 //   3) Backslashes that precede a double-quote must be escaped.
 //      The double-quote must also be escaped.
+//   4) Finally, any metacharacters recognized by 'cmd.exe' must be
+//      escaped with a caret.
 //
 // NOTE: The below algorithm is adapted from Daniel Colascione's public domain
 // algorithm for quoting command line arguments on Windows for `CreateProcess`.
@@ -206,6 +214,15 @@ inline std::wstring stringify_args(const std::vector<std::string>& argv)
   }
   // Append final null terminating character.
   command.push_back(L'\0');
+
+  // Now escape metacharacters recognized by 'cmd.exe'.
+  size_t pos = 0;
+  for (command.find_first_of(L"()%!^\"<>&|", pos);
+       pos < command.size();
+       pos += 2) {
+    command.insert(pos, L"^");
+  }
+
   return command;
 }
 
