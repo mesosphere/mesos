@@ -107,7 +107,7 @@ TEST_F(SubprocessTest, PipeOutputToFileDescriptor)
   run_subprocess(
     [outfile_fd]() -> Try<Subprocess> {
       return subprocess(
-          "echo hello",
+          "python -c \"print('hello world')\"",
           Subprocess::FD(STDIN_FILENO),
           Subprocess::FD(outfile_fd.get()),
           Subprocess::FD(STDERR_FILENO));
@@ -126,7 +126,7 @@ TEST_F(SubprocessTest, PipeOutputToFileDescriptor)
   // Finally, read output and error files, and make sure messages are inside.
   const Result<string> output = os::read(outfile);
   ASSERT_SOME(output);
-  EXPECT_EQ("hello\n", output.get());
+  EXPECT_EQ("hello world\n", output.get());
 
   const Result<string> error = os::read(errorfile);
   ASSERT_SOME(error);

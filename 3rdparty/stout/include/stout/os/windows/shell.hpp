@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iostream>
 #include <map>
 #include <string>
 #include <vector>
@@ -27,6 +28,7 @@
 #include <stout/none.hpp>
 #include <stout/option.hpp>
 #include <stout/os.hpp>
+#include <stout/strings.hpp>
 #include <stout/try.hpp>
 #include <stout/windows.hpp>
 
@@ -34,6 +36,20 @@
 #include <stout/os/pipe.hpp>
 
 #include <stout/internal/windows/inherit.hpp>
+
+namespace os {
+namespace Shell {
+
+// Canonical constants used as platform-dependent args to `exec` calls.
+// `name` is the command name, `arg0` is the first argument received
+// by the callee, usually the command name and `arg1` is the second
+// command argument received by the callee.
+constexpr const char* name = "cmd.exe";
+constexpr const char* arg0 = "cmd.exe";
+constexpr const char* arg1 = "/c";
+
+} // namespace Shell {
+} // namespace os {
 
 namespace internal {
 namespace windows {
@@ -164,48 +180,63 @@ inline Option<std::wstring> create_process_env(
 inline std::wstring stringify_args(const std::vector<std::string>& argv)
 {
   std::wstring command;
-  for (auto argit = argv.cbegin(); argit != argv.cend(); ++argit) {
-    std::wstring arg = wide_stringify(*argit);
-    // Don't quote empty arguments or those without troublesome characters.
-    if (!arg.empty() && arg.find_first_of(L" \t\n\v\"") == arg.npos) {
-      command.append(arg);
-    } else {
-      // Beginning double quotation mark.
-      command.push_back(L'"');
-      for (auto it = arg.cbegin(); it != arg.cend(); ++it) {
-        // Count existent backslashes in argument.
-        unsigned int backslashes = 0;
-        while (it != arg.cend() && *it == L'\\') {
-          ++it;
-          ++backslashes;
+
+  // If this is being executed via 'cmd.exe /c <command>', then we don't need to
+  // escape any metacharacters, since any quotes around the command argument are
+  // stripped by 'cmd.exe' and thus it does not expect metacharacters to be
+  // escaped.
+  if (argv.size() >= 3 &&
+      argv.at(0) == os::Shell::arg0 &&
+      argv.at(1) == os::Shell::arg1) {
+    command = wide_stringify(strings::join(" ", argv));
+  } else {
+    for (auto argit = argv.cbegin(); argit != argv.cend(); ++argit) {
+      std::wstring arg = wide_stringify(*argit);
+
+      // Don't quote empty arguments or those without troublesome characters.
+      if (!arg.empty() && arg.find_first_of(L" \t\n\v\"") == arg.npos) {
+        command.append(arg);
+      } else {
+        // Beginning double quotation mark.
+        command.push_back(L'"');
+        for (auto it = arg.cbegin(); it != arg.cend(); ++it) {
+          // Count existent backslashes in argument.
+          unsigned int backslashes = 0;
+          while (it != arg.cend() && *it == L'\\') {
+            ++it;
+            ++backslashes;
+          }
+
+          if (it == arg.cend()) {
+            // Escape all backslashes, but let the terminating double quotation
+            // mark we add below be interpreted as a metacharacter.
+            command.append(backslashes * 2, L'\\');
+            break;
+          } else if (*it == L'"') {
+            // Escape all backslashes and the following double quotation mark.
+            command.append(backslashes * 2 + 1, L'\\');
+            command.push_back(*it);
+          } else {
+            // Backslashes aren't special here.
+            command.append(backslashes, L'\\');
+            command.push_back(*it);
+          }
         }
 
-        if (it == arg.cend()) {
-          // Escape all backslashes, but let the terminating double quotation
-          // mark we add below be interpreted as a metacharacter.
-          command.append(backslashes * 2, L'\\');
-          break;
-        } else if (*it == L'"') {
-          // Escape all backslashes and the following double quotation mark.
-          command.append(backslashes * 2 + 1, L'\\');
-          command.push_back(*it);
-        } else {
-          // Backslashes aren't special here.
-          command.append(backslashes, L'\\');
-          command.push_back(*it);
-        }
+        // Terminating double quotation mark.
+        command.push_back(L'"');
       }
 
-      // Terminating double quotation mark.
-      command.push_back(L'"');
-    }
-    // Space separate arguments (but don't append at end).
-    if (argit != argv.cend() - 1) {
-      command.push_back(L' ');
+      // Space separate arguments (but don't append at end).
+      if (argit != argv.cend() - 1) {
+        command.push_back(L' ');
+      }
     }
   }
+
   // Append final null terminating character.
   command.push_back(L'\0');
+
   return command;
 }
 
@@ -386,17 +417,6 @@ inline Try<ProcessData> create_process(
 } // namespace internal {
 
 namespace os {
-namespace Shell {
-
-// Canonical constants used as platform-dependent args to `exec` calls.
-// `name` is the command name, `arg0` is the first argument received
-// by the callee, usually the command name and `arg1` is the second
-// command argument received by the callee.
-constexpr const char* name = "cmd.exe";
-constexpr const char* arg0 = "cmd.exe";
-constexpr const char* arg1 = "/c";
-
-} // namespace Shell {
 
 // Runs a shell command (with `cmd.exe`) with optional arguments.
 //
