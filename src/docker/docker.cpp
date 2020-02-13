@@ -967,7 +967,7 @@ Try<Docker::RunOptions> Docker::RunOptions::create(
     // and not the default entrypoint of the image. View MESOS-1770
     // for more details.
 #ifdef __WINDOWS__
-    options.entrypoint = "cmd";
+    options.entrypoint = "cmd.exe";
 #else
     options.entrypoint = "/bin/sh";
 #endif // __WINDOWS__
