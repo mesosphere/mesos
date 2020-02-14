@@ -188,7 +188,18 @@ inline std::wstring stringify_args(const std::vector<std::string>& argv)
   if (argv.size() >= 3 &&
       argv.at(0) == os::Shell::arg0 &&
       argv.at(1) == os::Shell::arg1) {
-    command = wide_stringify(strings::join(" ", argv));
+    auto it = argv.begin();
+    command.append(wide_stringify(*it++));
+    command.push_back(L' ');
+    command.append(wide_stringify(*it++));
+    command.push_back(L' ');
+
+    // Enclose the entire command argument (including all remaining members of
+    // `argv`) with double quotes, which will be stripped by 'cmd.exe /c'.
+    command.push_back(L'"');
+    command.append(wide_stringify(
+        strings::join(" ", std::vector<std::string>(it, argv.end()))));
+    command.push_back(L'"');
   } else {
     for (auto argit = argv.cbegin(); argit != argv.cend(); ++argit) {
       std::wstring arg = wide_stringify(*argit);
@@ -280,7 +291,7 @@ inline Try<ProcessData> create_process(
   const std::wstring arg_string = stringify_args(argv);
   std::vector<wchar_t> arg_buffer(arg_string.begin(), arg_string.end());
   arg_buffer.push_back(L'\0');
-
+  std::wcout << "***** command: " << arg_string << std::endl;
   // Create the process with a Unicode environment and extended
   // startup info.
   DWORD creation_flags =
