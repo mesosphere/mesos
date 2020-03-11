@@ -1540,6 +1540,74 @@ Option<Error> validateContainerInfo(const TaskInfo& task)
 }
 
 
+Option<Error> validateResourceLimits(
+    const TaskInfo& task,
+    Slave* slave)
+{
+  auto limits = task.limits();
+
+  if (!limits.empty()) {
+    if (!slave->capabilities.taskResourceLimits) {
+      return Error("Agent is not capable of handling task resource limits");
+    }
+
+    if (task.has_container() &&
+        task.container().has_linux_info() &&
+        task.container().linux_info().has_share_cgroups() &&
+        task.container().linux_info().share_cgroups()) {
+      return Error(
+          "Resource limits cannot be specified on tasks which"
+          " have the 'share_cgroups' field set to 'true'");
+    }
+
+    // Ensure that only "cpus" and "mem" are included.
+    const size_t cpuCount = limits.count("cpus");
+    const size_t memCount = limits.count("mem");
+
+    if (limits.size() > cpuCount + memCount) {
+      return Error(
+          "Only cpus and mem may be included in a task's resource limits");
+    }
+
+    if (cpuCount) {
+      Option<double> taskCpus = Resources(task.resources()).cpus();
+      if (taskCpus.isNone() || limits.at("cpus").value() < taskCpus.get()) {
+        return Error(
+            "The cpu limit must be greater than or equal to the cpu request");
+      }
+    }
+
+    if (memCount) {
+      Option<Bytes> taskMem = Resources(task.resources()).mem();
+      if (taskMem.isNone() ||
+          Bytes(limits.at("mem").value(), Bytes::MEGABYTES) < taskMem.get()) {
+        return Error(
+            "The memory limit must be greater"
+            " than or equal to the memory request");
+      }
+    }
+  }
+
+  return None();
+}
+
+
+// This validation function should only be executed for tasks which are launched
+// via the LAUNCH operation, not the LAUNCH_GROUP operation.
+Option<Error> validateShareCgroups(const TaskInfo& task)
+{
+  if (task.has_container() &&
+      task.container().has_linux_info() &&
+      task.container().linux_info().has_share_cgroups() &&
+      !task.container().linux_info().share_cgroups()) {
+    return Error(
+        "Only tasks in a task group may have 'share_cgroups' set to 'false'");
+  }
+
+  return None();
+}
+
+
 // Validates task specific fields except its executor (if it exists).
 Option<Error> validateTask(
     const TaskInfo& task,
@@ -1561,7 +1629,8 @@ Option<Error> validateTask(
     lambda::bind(internal::validateHealthCheck, task),
     lambda::bind(internal::validateResources, task),
     lambda::bind(internal::validateCommandInfo, task),
-    lambda::bind(internal::validateContainerInfo, task)
+    lambda::bind(internal::validateContainerInfo, task),
+    lambda::bind(internal::validateResourceLimits, task, slave)
   };
 
   foreach (const lambda::function<Option<Error>()>& validator, validators) {
@@ -1659,6 +1728,15 @@ Option<Error> validateExecutor(
         << "in future releases.";
     }
 
+    if (executor.has_container() &&
+        executor.container().has_linux_info() &&
+        executor.container().linux_info().has_share_cgroups() &&
+        executor.container().linux_info().share_cgroups()) {
+      return Error(
+          "The 'share_cgroups' field cannot be set to 'true'"
+          " on executor containers");
+    }
+
     if (!slave->hasExecutor(framework->id(), task.executor().executor_id())) {
       total += executorResources;
     }
@@ -1698,7 +1776,8 @@ Option<Error> validate(
 
   vector<lambda::function<Option<Error>()>> validators = {
     lambda::bind(internal::validateTask, task, framework, slave),
-    lambda::bind(internal::validateExecutor, task, framework, slave, offered)
+    lambda::bind(internal::validateExecutor, task, framework, slave, offered),
+    lambda::bind(internal::validateShareCgroups, task)
   };
 
   foreach (const lambda::function<Option<Error>()>& validator, validators) {
@@ -1748,6 +1827,14 @@ Option<Error> validateTask(
 
     if (task.container().type() == ContainerInfo::DOCKER) {
       return Error("Docker ContainerInfo is not supported on the task");
+    }
+
+    if (!task.limits().empty() &&
+        task.container().has_linux_info() &&
+        task.container().linux_info().share_cgroups()) {
+      return Error(
+          "Resource limits may only be set for tasks within a task group when "
+          " the 'share_cgroups' field is set to 'false'.");
     }
   }
 
@@ -1901,6 +1988,46 @@ Option<Error> validateExecutor(
   return None();
 }
 
+
+Option<Error> validateShareCgroups(
+    const TaskGroupInfo& taskGroup,
+    const ExecutorInfo& executor)
+{
+  if (executor.has_container() &&
+      executor.container().has_linux_info() &&
+      executor.container().linux_info().has_share_cgroups() &&
+      executor.container().linux_info().share_cgroups()) {
+    return Error(
+        "The 'share_cgroups' field cannot be set to 'true' on "
+        "executor containers");
+  }
+
+  // If any task in a task group has 'share_cgroups' set to 'false',
+  // then all tasks in the task group must have it set to 'false'.
+  Option<bool> shareCgroups;
+  foreach (const TaskInfo& task, taskGroup.tasks()) {
+    // If the task does not have 'LinuxInfo' set, then we treat it as having
+    // 'share_cgroups==true' for validation purposes, since that is the default
+    // behavior.
+    bool taskShareCgroups =
+      (task.has_container() &&
+       task.container().has_linux_info() &&
+       !task.container().linux_info().share_cgroups()) ?
+         false :
+         true;
+
+    if (shareCgroups.isNone()) {
+      shareCgroups = taskShareCgroups;
+    } else if (taskShareCgroups != shareCgroups.get()) {
+      return Error(
+          "If set, the value of 'share_cgroups' must be the same for all tasks "
+          " in a task group");
+    }
+  }
+
+  return None();
+}
+
 } // namespace internal {
 
 
@@ -1922,11 +2049,22 @@ Option<Error> validate(
     }
   }
 
-  Option<Error> error =
-    internal::validateExecutor(taskGroup, executor, framework, slave, offered);
+  vector<lambda::function<Option<Error>()>> validators = {
+    lambda::bind(
+        internal::validateExecutor,
+        taskGroup,
+        executor,
+        framework,
+        slave,
+        offered),
+    lambda::bind(internal::validateShareCgroups, taskGroup, executor)
+  };
 
-  if (error.isSome()) {
-    return error;
+  foreach (const lambda::function<Option<Error>()>& validator, validators) {
+    Option<Error> error = validator();
+    if (error.isSome()) {
+      return error;
+    }
   }
 
   return None();
