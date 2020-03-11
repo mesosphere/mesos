@@ -102,6 +102,8 @@ using ::testing::DoDefault;
 using ::testing::Invoke;
 using ::testing::Return;
 
+using google::protobuf::Map;
+
 namespace mesos {
 namespace internal {
 namespace tests {
@@ -910,20 +912,25 @@ template <
     typename TResources,
     typename TExecutorInfo,
     typename TCommandInfo,
-    typename TOffer>
+    typename TOffer,
+    typename TScalar>
 inline TTaskInfo createTask(
     const TSlaveID& slaveId,
-    const TResources& resources,
+    const TResources& resourceRequests,
     const TCommandInfo& command,
     const Option<TExecutorID>& executorId = None(),
     const std::string& name = "test-task",
-    const std::string& id = id::UUID::random().toString())
+    const std::string& id = id::UUID::random().toString(),
+    const Map<std::string, TScalar>& resourceLimits = {})
 {
   TTaskInfo task;
   task.set_name(name);
   task.mutable_task_id()->set_value(id);
   setAgentID(&task, slaveId);
-  task.mutable_resources()->CopyFrom(resources);
+  task.mutable_resources()->CopyFrom(resourceRequests);
+  if (!resourceLimits.empty()) {
+    *task.mutable_limits() = resourceLimits;
+  }
   if (executorId.isSome()) {
     TExecutorInfo executor;
     executor.mutable_executor_id()->CopyFrom(executorId.get());
@@ -944,14 +951,16 @@ template <
     typename TResources,
     typename TExecutorInfo,
     typename TCommandInfo,
-    typename TOffer>
+    typename TOffer,
+    typename TScalar>
 inline TTaskInfo createTask(
     const TSlaveID& slaveId,
-    const TResources& resources,
+    const TResources& resourceRequests,
     const std::string& command,
     const Option<TExecutorID>& executorId = None(),
     const std::string& name = "test-task",
-    const std::string& id = id::UUID::random().toString())
+    const std::string& id = id::UUID::random().toString(),
+    const Map<std::string, TScalar>& resourceLimits = {})
 {
   return createTask<
       TTaskInfo,
@@ -960,13 +969,15 @@ inline TTaskInfo createTask(
       TResources,
       TExecutorInfo,
       TCommandInfo,
-      TOffer>(
+      TOffer,
+      TScalar>(
           slaveId,
-          resources,
+          resourceRequests,
           createCommandInfo<TCommandInfo>(command),
           executorId,
           name,
-          id);
+          id,
+          resourceLimits);
 }
 
 
@@ -977,13 +988,15 @@ template <
     typename TResources,
     typename TExecutorInfo,
     typename TCommandInfo,
-    typename TOffer>
+    typename TOffer,
+    typename TScalar>
 inline TTaskInfo createTask(
     const TOffer& offer,
     const std::string& command,
     const Option<TExecutorID>& executorId = None(),
     const std::string& name = "test-task",
-    const std::string& id = id::UUID::random().toString())
+    const std::string& id = id::UUID::random().toString(),
+    const Map<std::string, TScalar>& resourceLimits = {})
 {
   return createTask<
       TTaskInfo,
@@ -992,13 +1005,15 @@ inline TTaskInfo createTask(
       TResources,
       TExecutorInfo,
       TCommandInfo,
-      TOffer>(
+      TOffer,
+      TScalar>(
           getAgentID(offer),
           offer.resources(),
           command,
           executorId,
           name,
-          id);
+          id,
+          resourceLimits);
 }
 
 
@@ -1750,7 +1765,8 @@ inline TaskInfo createTask(Args&&... args)
       Resources,
       ExecutorInfo,
       CommandInfo,
-      Offer>(std::forward<Args>(args)...);
+      Offer,
+      Value::Scalar>(std::forward<Args>(args)...);
 }
 
 
@@ -2040,7 +2056,8 @@ inline mesos::v1::TaskInfo createTask(Args&&... args)
       mesos::v1::Resources,
       mesos::v1::ExecutorInfo,
       mesos::v1::CommandInfo,
-      mesos::v1::Offer>(std::forward<Args>(args)...);
+      mesos::v1::Offer,
+      mesos::v1::Value::Scalar>(std::forward<Args>(args)...);
 }
 
 
