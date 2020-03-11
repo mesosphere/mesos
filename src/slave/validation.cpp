@@ -279,8 +279,11 @@ Option<Error> validate(
             "Expecting 'launch_nested_container_session' to be present");
       }
 
+      const mesos::agent::Call::LaunchNestedContainerSession& session =
+        call.launch_nested_container_session();
+
       Option<Error> error = validation::container::validateContainerId(
-          call.launch_nested_container_session().container_id());
+          session.container_id());
 
       if (error.isSome()) {
         return Error("'launch_nested_container_session.container_id' is invalid"
@@ -289,27 +292,33 @@ Option<Error> validate(
 
       // The parent `ContainerID` is required, so that we know
       // which container to place it underneath.
-      if (!call.launch_nested_container_session().container_id().has_parent()) {
+      if (!session.container_id().has_parent()) {
         return Error(
             "Expecting 'launch_nested_container_session.container_id.parent'"
             " to be present");
       }
 
-      if (call.launch_nested_container_session().has_command()) {
-        error = common::validation::validateCommandInfo(
-            call.launch_nested_container_session().command());
+      if (session.has_command()) {
+        error = common::validation::validateCommandInfo(session.command());
         if (error.isSome()) {
           return Error("'launch_nested_container_session.command' is invalid"
                        ": " + error->message);
         }
       }
 
-      if (call.launch_nested_container_session().has_container()) {
-        error = common::validation::validateContainerInfo(
-            call.launch_nested_container_session().container());
+      if (session.has_container()) {
+        error = common::validation::validateContainerInfo(session.container());
         if (error.isSome()) {
           return Error("'launch_nested_container_session.container' is invalid"
                        ": " + error->message);
+        }
+
+        if (session.container().has_linux_info() &&
+            !session.container().linux_info().share_cgroups()) {
+          return Error(
+              "'launch_nested_container_session.container.linux_info' is "
+              "invalid: 'share_cgroups' cannot be set to 'false' for nested "
+              "container sessions");
         }
       }
 
@@ -436,6 +445,16 @@ Option<Error> validate(
           return Error(
               "'launch_container.container' is invalid: " + error->message);
         }
+      }
+
+      if (!call.launch_container().container_id().has_parent() &&
+          call.launch_container().container().has_linux_info() &&
+          call.launch_container().container().linux_info().has_share_cgroups() &&
+          call.launch_container().container().linux_info().share_cgroups()) {
+        return Error(
+            "'launch_container.container.linux_info is invalid: "
+            "A container with no parent cannot have the 'share_cgroups' "
+            "field set to 'true'");
       }
 
       return None();
