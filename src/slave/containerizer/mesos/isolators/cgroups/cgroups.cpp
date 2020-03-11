@@ -481,7 +481,8 @@ Future<Option<ContainerLaunchInfo>> CgroupsIsolatorProcess::prepare(
       infos[containerId]->subsystems.insert(subsystem->name());
       prepares.push_back(subsystem->prepare(
           containerId,
-          infos[containerId]->cgroup));
+          infos[containerId]->cgroup,
+          containerConfig));
     }
 
     // Chown the cgroup so the executor or a nested container whose
