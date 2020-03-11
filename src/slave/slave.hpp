@@ -781,7 +781,8 @@ private:
 
   google::protobuf::Map<std::string, Value::Scalar> computeExecutorLimits(
       const Resources& executorResources,
-      const std::vector<TaskInfo>& tasks) const;
+      const std::vector<TaskInfo>& taskInfos,
+      const std::vector<Task*>& tasks = {}) const;
 
   protobuf::master::Capabilities requiredMasterCapabilities;
 
