@@ -1009,8 +1009,10 @@ if (WIN32)
   #   * For a shared Release build: `zlib1.lib`.
   if (NOT BUILD_SHARED_LIBS)
     set(ZLIB_STATIC static)
+    set(ZLIB_LIBRARY_SUBDIR lib)
   else ()
     set(ZLIB_SHARED 1)
+    set(ZLIB_LIBRARY_SUBDIR bin)
   endif ()
 
   # NOTE: We install Zlib under `${ZLIB_ROOT}-lib` so CMake's `FindZLIB` module
@@ -1026,8 +1028,8 @@ if (WIN32)
   if (CMAKE_GENERATOR MATCHES "Visual Studio")
     set_target_properties(
       zlib PROPERTIES
-      IMPORTED_LOCATION_DEBUG ${ZLIB_ROOT}-lib/lib/zlib${ZLIB_STATIC}d${ZLIB_SHARED}${LIBRARY_SUFFIX}
-      IMPORTED_LOCATION_RELEASE ${ZLIB_ROOT}-lib/lib/zlib${ZLIB_STATIC}${ZLIB_SHARED}${LIBRARY_SUFFIX}
+      IMPORTED_LOCATION_DEBUG ${ZLIB_ROOT}-lib/${ZLIB_LIBRARY_SUBDIR}/zlib${ZLIB_STATIC}d${ZLIB_SHARED}${LIBRARY_SUFFIX}
+      IMPORTED_LOCATION_RELEASE ${ZLIB_ROOT}-lib/${ZLIB_LIBRARY_SUBDIR}/zlib${ZLIB_STATIC}${ZLIB_SHARED}${LIBRARY_SUFFIX}
       IMPORTED_IMPLIB_DEBUG ${ZLIB_ROOT}-lib/lib/zlib${ZLIB_STATIC}d${CMAKE_IMPORT_LIBRARY_SUFFIX}
       IMPORTED_IMPLIB_RELEASE ${ZLIB_ROOT}-lib/lib/zlib${ZLIB_STATIC}${CMAKE_IMPORT_LIBRARY_SUFFIX})
   else ()
@@ -1115,8 +1117,8 @@ if (NOT UNBUNDLED_LIBARCHIVE)
     # links to. This is necessary because the zlib project
     # unconditionally builds both shared and static libraries, and we
     # need to be consistent about which is linked.
-    list(APPEND LIBARCHIVE_CMAKE_ARGS
-      -DZLIB_LIBRARY=$<TARGET_FILE:zlib>)
+    #list(APPEND LIBARCHIVE_CMAKE_ARGS
+    #  -DZLIB_LIBRARY=$<TARGET_FILE:zlib>)
   else ()
     list(APPEND LIBARCHIVE_CMAKE_ARGS
       -DENABLE_BZip2=OFF
