@@ -202,6 +202,39 @@ static hashmap<string, vector<ResourceQuantities>> unpackFrameworkOfferFilters(
 }
 
 
+// In DC/OS, Marathon and SDK use reservation labels to mark the
+// reservations that they created and to prevent other frameworks
+// from using them. However, some frameworks (e.g. Spark, Jenkins)
+// do not check the labels and can use reservations created by
+// Marathon / SDK.
+//
+// This strips reservations that belong to another framework, using
+// the framework id label convention. Longer term, we would want to
+// just use framework specific reservations for this, see MESOS-7651.
+Resources stripOtherFrameworkReservations(
+    const Resources& resources,
+    const FrameworkID& frameworkId)
+{
+  return resources.filter([&](const Resource& resource) {
+    if (Resources::isReserved(resource)) {
+      CHECK(!resource.reservations().empty());
+
+      foreach (const Resource::ReservationInfo& reservation,
+               resource.reservations()) {
+        foreach (const Label& label, reservation.labels().labels()) {
+          if (label.key() == "framework_id" ||
+              label.key() == "marathon_framework_id") {
+            return label.value() == frameworkId.value();
+          }
+        }
+      }
+    }
+
+    return true;
+  });
+}
+
+
 Role::Role(const string& _role, Role* _parent)
   : role(_role),
     basename(strings::split(role, "/").back()),
@@ -2021,6 +2054,8 @@ void HierarchicalAllocatorProcess::__allocate()
 
         available = stripIncapableResources(available, framework.capabilities);
 
+        available = stripOtherFrameworkReservations(available, frameworkId);
+
         // In this first stage, we allocate the role's reservations as well as
         // any unreserved resources while enforcing the role's quota limits and
         // the global headroom. We'll "chop" the unreserved resources if needed.
@@ -2248,6 +2283,8 @@ void HierarchicalAllocatorProcess::__allocate()
         }
 
         available = stripIncapableResources(available, framework.capabilities);
+
+        available = stripOtherFrameworkReservations(available, frameworkId);
 
         // Reservations (including the roles ancestors' reservations),
         // non-scalar resources and revocable resources are always allocated.
