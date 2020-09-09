@@ -66,6 +66,10 @@ struct Options
   size_t maxCompletedFrameworks = 0;
 
   bool publishPerFrameworkMetrics = true;
+
+  // Recovery options
+  Duration recoveryTimeout = Minutes(10);
+  float agentRecoveryFactor = 0.80;
 };
 
 
@@ -104,7 +108,6 @@ private:
 
   OfferConstraintsFilter(internal::OfferConstraintsFilterImpl&& impl_);
 };
-
 
 /**
  * Per-framework allocator-specific options that are not part of
