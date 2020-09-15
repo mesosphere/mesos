@@ -514,6 +514,12 @@ LIB_GRPC = $(GRPC)/libs/opt/libgrpc++$(GRPC_VARIANT).a	\
            $(GRPC)/libs/opt/libgrpc$(GRPC_VARIANT).a	\
            $(GRPC)/libs/opt/libgpr.a
 
+# Dependent projects which build against the Mesos tests library will require
+# 'grpcpp.h'. Install it into $PREFIX/include but don't add it to the source
+# tarball.
+nodist_include_HEADERS = $(GRPC)/include/grpcpp/grpcpp.h
+$(GRPC)/include/grpcpp/grpcpp.h: $(GRPC)-stamp
+
 $(LIB_GRPC): $(GRPC)-build-stamp
 
 # NOTE: We pass compiler flags through environment variables rather than the
